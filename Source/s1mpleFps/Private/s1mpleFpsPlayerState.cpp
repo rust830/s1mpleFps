@@ -1,0 +1,84 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+
+#include "s1mpleFpsPlayerState.h"
+#include "Net/UnrealNetwork.h"
+
+void As1mpleFpsPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(As1mpleFpsPlayerState, Kills);
+	DOREPLIFETIME(As1mpleFpsPlayerState, Deaths);
+	DOREPLIFETIME(As1mpleFpsPlayerState, Scores);
+	DOREPLIFETIME(As1mpleFpsPlayerState, Money);
+	DOREPLIFETIME(As1mpleFpsPlayerState, KillStreak);
+	DOREPLIFETIME(As1mpleFpsPlayerState, DeathStreak);
+	DOREPLIFETIME(As1mpleFpsPlayerState, TeamId);
+}
+
+void As1mpleFpsPlayerState::OnRep_Kills()
+{
+	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+}
+
+void As1mpleFpsPlayerState::OnRep_Deaths()
+{
+	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+}
+
+void As1mpleFpsPlayerState::OnRep_Scores()
+{
+	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+}
+
+void As1mpleFpsPlayerState::OnRep_Money()
+{
+	OnMoneyChanged.Broadcast(Money);
+}
+
+void As1mpleFpsPlayerState::AddKill()
+{
+	Kills++;
+	Scores += 100;
+	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+}
+
+void As1mpleFpsPlayerState::AddDeath()
+{
+	Deaths++;
+	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+}
+
+void As1mpleFpsPlayerState::AddScore(int32 Points)
+{
+	Scores += Points;
+	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+}
+
+bool As1mpleFpsPlayerState::TrySpendingMoney(int32 Amount)
+{
+	if (Money >= Amount) {
+		Money -= Amount;
+		OnMoneyChanged.Broadcast(Money);
+		return true;
+	}
+	return false;
+}
+
+void As1mpleFpsPlayerState::AddMoney(int32 Amount)
+{
+	Money += Amount;
+	OnMoneyChanged.Broadcast(Money);
+}
+
+void As1mpleFpsPlayerState::IncrementKillStreak()
+{
+	KillStreak++;
+	DeathStreak = 0;
+}
+
+void As1mpleFpsPlayerState::IncrementDeathStreak()
+{
+	DeathStreak++;
+	KillStreak = 0;
+}
