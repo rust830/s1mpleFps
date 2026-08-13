@@ -1,0 +1,739 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+
+#include "TP_WeaponComponent.h"
+#include "s1mpleFpsCharacter.h"
+#include "s1mpleFpsProjectile.h"
+#include "GameFramework/PlayerController.h"
+#include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "WeaponData.h"
+#include "Animation/AnimInstance.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
+#include "EnemyAIController.h"
+#include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
+#include "s1mpleFpsPlayerController.h"
+#include "HUDWidget.h"
+
+
+UTP_WeaponComponent::UTP_WeaponComponent()
+{
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
+	MuzzleOffset = FVector(100.0f, 0.0f, 10.0f);
+}
+
+
+void UTP_WeaponComponent::SwitchFireMode()
+{
+	if (!WeaponData) return;
+	if (!WeaponData->bCanSwitchFireMode) return;
+	switch (CurrentFireMode) {
+	case EFireModeEnum::SemiAuto:
+		CurrentFireMode = EFireModeEnum::Burst; break;
+	case EFireModeEnum::Burst:
+		CurrentFireMode = EFireModeEnum::FullAuto; break;
+	case EFireModeEnum::FullAuto:
+		CurrentFireMode = EFireModeEnum::SemiAuto; break;
+	}
+}
+
+void UTP_WeaponComponent::OnRep_CurrentAmmo()
+{
+	CurrentAmmo = ReplicatedCurrentAmmo;
+	if (!bIsReloading)
+		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
+}
+
+void UTP_WeaponComponent::OnRep_SpareAmmo()
+{
+	SpareAmmo = ReplicatedSpareAmmo;
+	if (!bIsReloading)
+		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
+}
+
+void UTP_WeaponComponent::OnRep_WeaponData()
+{
+	if (!WeaponData) return;
+	// 客户端收到 WeaponData 时补充网格和音效
+	if (!GetSkeletalMeshAsset() && WeaponData->WeaponMesh)
+		SetSkeletalMeshAsset(WeaponData->WeaponMesh);
+	if (!FireSound && WeaponData->FireSound)
+		FireSound = WeaponData->FireSound;
+	if (!FireAnimation && WeaponData->FireAnimation)
+		FireAnimation = WeaponData->FireAnimation;
+	if (!FireAction) FireAction = WeaponData->WeaponFireAction;
+	if (!ReloadAction) ReloadAction = WeaponData->WeaponReloadAction;
+	if (!SwitchAction) SwitchAction = WeaponData->WeaponSwitchAction;
+	if (!AimAction) AimAction = WeaponData->WeaponAimAction;
+	if (!FireMappingContext) FireMappingContext = WeaponData->WeaponMappingContext;
+
+	// WeaponData may replicate after CurrentWeapon; refresh HUD when it arrives.
+	if (Character && Character->IsLocallyControlled())
+	{
+		if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Character->Controller))
+		{
+			if (PC->HUDWidget)
+			{
+				PC->HUDWidget->UpdateEquipmentDisplay();
+			}
+		}
+	}
+}
+
+void UTP_WeaponComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UTP_WeaponComponent, ReplicatedCurrentAmmo);
+	DOREPLIFETIME(UTP_WeaponComponent, ReplicatedSpareAmmo);
+	DOREPLIFETIME(UTP_WeaponComponent, WeaponData);
+}
+
+void UTP_WeaponComponent::ServerReload_Implementation()
+{
+	if (ReplicatedSpareAmmo <= 0) return;
+	if (ReplicatedCurrentAmmo >= WeaponData->MaxProjectile) return;
+
+	int32 Needed = WeaponData->MaxProjectile - ReplicatedCurrentAmmo;
+	int32 ToReload = FMath::Min(Needed, ReplicatedSpareAmmo);
+	ReplicatedCurrentAmmo += ToReload;
+	ReplicatedSpareAmmo -= ToReload;
+}
+
+void UTP_WeaponComponent::StartAiming()
+{
+	if (!Character || Character->CurrentWeapon != this) return;
+	bIsAiming = true;
+	TargetFOV = ADSFOV;
+	if (Character->bIsThirdPerson) {
+		SavedSpringArmLength = Character->ThirdPersonSpringArm->TargetArmLength;
+		SavedSocketOffset = Character->ThirdPersonSpringArm->SocketOffset;
+		SavedTargetOffset = Character->ThirdPersonSpringArm->TargetOffset;
+		Character->ThirdPersonSpringArm->TargetArmLength = ADSSpringArmLength;
+		Character->ThirdPersonSpringArm->SocketOffset = ADSSocketOffset;
+		Character->ThirdPersonSpringArm->TargetOffset = ADSTargetOffset;
+		Character->GetMesh()->SetOwnerNoSee(true);
+	}
+}
+
+void UTP_WeaponComponent::EndAiming()
+{
+	if (!Character || Character->CurrentWeapon != this) return;
+	bIsAiming = false;
+	TargetFOV = DefaultFOV;
+	if (Character->bIsThirdPerson) {
+		Character->ThirdPersonSpringArm->TargetArmLength = SavedSpringArmLength;
+		Character->ThirdPersonSpringArm->SocketOffset = SavedSocketOffset;
+		Character->ThirdPersonSpringArm->TargetOffset = SavedTargetOffset;
+			Character->GetMesh()->SetOwnerNoSee(false);
+		}
+}
+
+void UTP_WeaponComponent::ToggleAiming()
+{
+	if (!Character || Character->CurrentWeapon != this) return;
+	if (bIsAiming) {
+		EndAiming();
+	}
+	else {
+		StartAiming();
+	}
+}
+
+void UTP_WeaponComponent::Equip()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Equip] Weapon=%s, Character=%s, IsLocallyControlled=%d, Role=%d"),
+		*GetName(), *GetNameSafe(Character), Character ? Character->IsLocallyControlled() : false, (int32)GetOwnerRole());
+	bIsEquipped = true;
+	// 武器可见性规则：
+	// 1. 本地控制 + 第一人称 → 可见（Mesh1P 的 bOnlyOwnerSee 已限制仅持有者可见）
+	// 2. 本地控制 + 第三人称 → 全部隐藏（ReattachWeaponsForView 处理）
+	// 3. 远程角色（模拟代理） → 始终隐藏
+	const bool bShouldShow = Character && Character->IsLocallyControlled() && !Character->bIsThirdPerson;
+	SetVisibility(bShouldShow);
+	if (!bShouldShow)
+		SetHiddenInGame(true, true);
+
+	CurrentFOV = DefaultFOV;
+	TargetFOV = DefaultFOV;
+	CurrentAmmo = ReplicatedCurrentAmmo;
+	SpareAmmo = ReplicatedSpareAmmo;
+	OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
+		if (WeaponData)
+		{
+			CurrentFireMode = WeaponData->FireMode;
+			CurrentSpread = WeaponData->BaseSpread;
+		}
+
+		// 从 WeaponData 补充输入配置（如果组件自身未设置）
+	UInputMappingContext* EffectiveMappingContext = FireMappingContext;
+	TArray<UInputAction*> EffectiveActions;
+	if (WeaponData)
+	{
+		if (!EffectiveMappingContext)
+			EffectiveMappingContext = WeaponData->WeaponMappingContext;
+		if (!FireAction) FireAction = WeaponData->WeaponFireAction;
+		if (!ReloadAction) ReloadAction = WeaponData->WeaponReloadAction;
+		if (!SwitchAction) SwitchAction = WeaponData->WeaponSwitchAction;
+		if (!AimAction) AimAction = WeaponData->WeaponAimAction;
+	}
+
+	if (!Character || !Character->GetController())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equip] ABORT: Character=%s, Controller=%s"), *GetNameSafe(Character), *GetNameSafe(Character ? Character->GetController() : nullptr));
+		return;
+	}
+	if (!Character->IsLocallyControlled())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equip] SKIP input bindings: not locally controlled, Role=%d"), (int32)GetOwnerRole());
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(Character->GetController());
+	if (!PC) return;
+
+	UE_LOG(LogTemp, Warning, TEXT("[Equip] Binding inputs: FireMappingContext=%p, FireAction=%p, ReloadAction=%p"),
+		EffectiveMappingContext, FireAction, ReloadAction);
+
+	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+	{
+		if (EffectiveMappingContext)
+		{
+			Subsystem->AddMappingContext(EffectiveMappingContext, 1);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("[Equip] FireMappingContext is NULL! Cannot add mapping context."));
+		}
+	}
+
+	if (UEnhancedInputComponent* Input = Cast<UEnhancedInputComponent>(PC->InputComponent))
+	{
+		Input->ClearBindingsForObject(this);
+		if (FireAction)
+		{
+			Input->BindAction(FireAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::StartFire);
+			Input->BindAction(FireAction, ETriggerEvent::Completed, this, &UTP_WeaponComponent::StopFire);
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] FireAction bound successfully"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("[Equip] FireAction is NULL! Cannot bind fire input."));
+		}
+		if (ReloadAction)
+		{
+			Input->BindAction(ReloadAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::Reload);
+		}
+		if (SwitchAction)
+		{
+			Input->BindAction(SwitchAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::SwitchFireMode);
+		}
+		if (AimAction)
+		{
+			Input->BindAction(AimAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::ToggleAiming);
+		}
+	}
+}
+
+void UTP_WeaponComponent::UnEquip()
+{
+	bIsEquipped = false;
+
+	StopAutoFire();
+	bIsTriggerHeld = false;
+	bIsOnFireCooldown = false;
+	bIsReloading = false;
+	bIsAiming = false;
+	TargetFOV = DefaultFOV;
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(FireRateTimerHandle);
+		GetWorld()->GetTimerManager().ClearTimer(ReloadTimerHandle);
+		GetWorld()->GetTimerManager().ClearTimer(AutoFireHandle);
+	}
+
+	SetVisibility(false);
+
+	if (!Character || !Character->GetController()) return;
+
+	APlayerController* PC = Cast<APlayerController>(Character->GetController());
+	if (!PC) return;
+
+	if (UEnhancedInputComponent* Input = Cast<UEnhancedInputComponent>(PC->InputComponent))
+	{
+		Input->ClearBindingsForObject(this);
+	}
+	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+	{
+		if (FireMappingContext)
+		{
+			Subsystem->RemoveMappingContext(FireMappingContext);
+		}
+	}
+}
+
+void UTP_WeaponComponent::Reload()
+{
+	if (!Character || Character->CurrentWeapon != this) return;
+	if (bIsReloading || !WeaponData) return;
+	if (CurrentAmmo >= WeaponData->MaxProjectile) return;
+	if (SpareAmmo <= 0) return;
+
+	bIsReloading = true;
+
+	if (Character->HasAuthority())
+	{
+		int32 Needed = WeaponData->MaxProjectile - ReplicatedCurrentAmmo;
+		PendingReloadAmount = FMath::Min(Needed, ReplicatedSpareAmmo);
+	}
+	else
+	{
+		// 乐观预测：立即本地加弹并刷新 HUD。
+		// 必须在 Reload 里预测、且靠 OnRep 的 =（覆盖）来对账；绝不能在 FinishReload 里再 +=，
+		// 否则会和 OnRep 已覆盖的值叠加成双倍。
+		int32 Needed = WeaponData->MaxProjectile - CurrentAmmo;
+		PendingReloadAmount = FMath::Min(Needed, SpareAmmo);
+		CurrentAmmo += PendingReloadAmount;
+		SpareAmmo -= PendingReloadAmount;
+		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
+		Character->ServerReloadWeapon(Character->WeaponIndex);
+	}
+
+	GetWorld()->GetTimerManager().SetTimer(ReloadTimerHandle, this, &UTP_WeaponComponent::FinishReload, WeaponData->ReloadTime, false);
+}
+
+void UTP_WeaponComponent::FinishReload()
+{
+	if (Character && Character->HasAuthority())
+	{
+		ReplicatedCurrentAmmo += PendingReloadAmount;
+		ReplicatedSpareAmmo -= PendingReloadAmount;
+		CurrentAmmo = ReplicatedCurrentAmmo;
+		SpareAmmo = ReplicatedSpareAmmo;
+	}
+	PendingReloadAmount = 0;
+	OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
+	bIsReloading = false;
+}
+
+void UTP_WeaponComponent::CancelReload()
+{
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(ReloadTimerHandle);
+	}
+	bIsReloading = false;
+	PendingReloadAmount = 0;
+}
+
+bool UTP_WeaponComponent::bCanFire()
+{
+	if (bIsOnFireCooldown || bIsReloading) return false;
+	return CurrentAmmo > 0;
+}
+
+void UTP_WeaponComponent::StartSingleFire()
+{
+	if (!Character || Character->CurrentWeapon != this)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED: Character=%s, CurrentWeapon=%s, this=%s"),
+			*GetNameSafe(Character), *GetNameSafe(Character ? Character->CurrentWeapon : nullptr), *GetName());
+		return;
+	}
+
+	if (Character->GetController() == nullptr) return;
+
+	if (Character->bIsDead)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED: Character is dead, Weapon=%s"), *GetName());
+		return;
+	}
+
+	if (!bCanFire())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED by bCanFire: CurrentAmmo=%d, bIsOnFireCooldown=%d, bIsReloading=%d"),
+			CurrentAmmo, (int32)bIsOnFireCooldown, (int32)bIsReloading);
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] FIRE: Weapon=%s, HasAuthority=%d, NetMode=%d"),
+		*GetName(), Character->HasAuthority(), (int32)GetWorld()->GetNetMode());
+
+	if (!WeaponData || !WeaponData->ProjectileClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED: WeaponData=%s, ProjectileClass=%s"),
+			*GetNameSafe(WeaponData), *GetNameSafe(WeaponData ? WeaponData->ProjectileClass : nullptr));
+		return;
+	}
+
+	UWorld* const World = GetWorld();
+	if (World != nullptr)
+	{
+		APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
+		FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
+		SpawnRotation.Pitch += FMath::FRandRange(-CurrentSpread, CurrentSpread);
+		SpawnRotation.Yaw += FMath::FRandRange(-CurrentSpread, CurrentSpread);
+		const FVector SpawnLocation = Character->GetFirstPersonCameraComponent()->GetComponentLocation() + SpawnRotation.RotateVector(MuzzleOffset);
+
+		if (Character->HasAuthority()) {
+			ReplicatedCurrentAmmo -= 1;
+			PerformFire(SpawnLocation, SpawnRotation);
+			MulticastFireEffect(SpawnLocation, SpawnRotation);
+		}
+		else {
+			Character->ServerFireWeapon(Character->WeaponIndex, SpawnLocation, SpawnRotation);
+		}
+		CurrentAmmo -= 1;
+		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
+		if (MuzzleFlashEffect != nullptr)
+		{
+			UGameplayStatics::SpawnEmitterAtLocation(World, MuzzleFlashEffect, SpawnLocation, SpawnRotation);
+		}
+		float Vertical = FMath::FRandRange(WeaponData->MinVertical, WeaponData->MaxVertical);
+		float Horizon = FMath::FRandRange(WeaponData->MinHorizon, WeaponData->MaxHorizon);
+		AccumulatedRecoil += FVector2D(Horizon, Vertical);
+		CurrentSpread = FMath::Min(CurrentSpread + WeaponData->SpreadPerShot, WeaponData->MaxSpread);
+		{
+			const float Intensity = WeaponData->MuzzleShakeIntensity;
+
+			MuzzleShakeOffset.X += Intensity * FMath::FRandRange(
+				WeaponData->MuzzleShakeXRange.X, WeaponData->MuzzleShakeXRange.Y);
+			MuzzleShakeOffset.Y += Intensity * 0.2f * FMath::FRandRange(-1.0f, 0.0f);
+			MuzzleShakeOffset.Z += Intensity * FMath::FRandRange(
+				WeaponData->MuzzleShakeZRange.X, WeaponData->MuzzleShakeZRange.Y);
+
+			MuzzleShakeRotation.Pitch += Intensity * FMath::FRandRange(
+				WeaponData->MuzzleShakePitchRange.X, WeaponData->MuzzleShakePitchRange.Y);
+			MuzzleShakeRotation.Yaw += Intensity * FMath::FRandRange(
+				WeaponData->MuzzleShakeYawRange.X, WeaponData->MuzzleShakeYawRange.Y);
+		}
+		if (CurrentFireMode == EFireModeEnum::Burst)
+		{
+			BurstRemaining--;
+			if (BurstRemaining <= 0)
+			{
+				StopAutoFire();
+			}
+		}
+	}
+
+	if (FireSound != nullptr)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	}
+
+	if (FireAnimation != nullptr)
+	{
+		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
+		if (AnimInstance != nullptr)
+		{
+			AnimInstance->Montage_Play(FireAnimation, 1.f);
+		}
+	}
+
+	if (CurrentFireMode == EFireModeEnum::SemiAuto) {
+		bIsOnFireCooldown = true;
+		float CooldownTime = WeaponData ? WeaponData->FireRate : 0.1f;
+		GetWorld()->GetTimerManager().SetTimer(FireRateTimerHandle, this, &UTP_WeaponComponent::ResetFireCooldown, CooldownTime, false);
+	}
+
+	if (CurrentAmmo <= 0 || bIsReloading) return;
+
+	if (CurrentFireMode == EFireModeEnum::Burst && BurstRemaining > 0)
+	{
+		GetWorld()->GetTimerManager().SetTimer(AutoFireHandle, this,
+			&UTP_WeaponComponent::StartSingleFire,
+			WeaponData ? WeaponData->FireRate : 0.1f, false);
+	}
+	else if (CurrentFireMode == EFireModeEnum::FullAuto && bIsTriggerHeld)
+	{
+		GetWorld()->GetTimerManager().SetTimer(AutoFireHandle, this,
+			&UTP_WeaponComponent::StartSingleFire,
+			WeaponData ? WeaponData->FireRate : 0.1f, false);
+	}
+}
+
+void UTP_WeaponComponent::StopAutoFire()
+{
+	bIsTriggerHeld = false;
+	GetWorld()->GetTimerManager().ClearTimer(AutoFireHandle);
+	GetWorld()->GetTimerManager().ClearTimer(FireRateTimerHandle);
+	bIsOnFireCooldown = false;
+	BurstRemaining = 0;
+}
+
+void UTP_WeaponComponent::ServerFire_Implementation(FVector SpawnLocation, FRotator SpawnRotation)
+{
+	if (!WeaponData)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] BLOCKED: WeaponData is NULL, Weapon=%s"), *GetName());
+		return;
+	}
+	if (ReplicatedCurrentAmmo <= 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] BLOCKED: ReplicatedCurrentAmmo=%d (no ammo on server), Weapon=%s, Character=%s"),
+			ReplicatedCurrentAmmo, *GetName(), *GetNameSafe(Character));
+		return;
+	}
+	if (!Character)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] BLOCKED: Character is NULL, Weapon=%s"), *GetName());
+		return;
+	}
+	ReplicatedCurrentAmmo -= 1;
+	PerformFire(SpawnLocation, SpawnRotation);
+	MulticastFireEffect(SpawnLocation, SpawnRotation);
+}
+
+void UTP_WeaponComponent::MulticastFireEffect_Implementation(FVector SpawnLocation, FRotator SpawnRotation)
+{
+	if (Character && Character->IsLocallyControlled()) return;
+	if (MuzzleFlashEffect != nullptr && GetWorld()) {
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), MuzzleFlashEffect, SpawnLocation, SpawnRotation);
+	}
+	if (FireSound != nullptr && Character) {
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	}
+	if (FireAnimation != nullptr && Character) {
+		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
+		if (AnimInstance != nullptr)
+		{
+			AnimInstance->Montage_Play(FireAnimation, 1.f);
+		}
+	}
+}
+
+void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotation)
+{
+	if (!WeaponData)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[PerformFire] BLOCKED: WeaponData is NULL, Weapon=%s"), *GetName());
+		return;
+	}
+	if (!WeaponData->ProjectileClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[PerformFire] BLOCKED: ProjectileClass is NULL on WeaponData=%s, Weapon=%s"),
+			*WeaponData->GetName(), *GetName());
+		return;
+	}
+	if (!Character)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PerformFire] BLOCKED: Character is NULL, Weapon=%s"), *GetName());
+		return;
+	}
+	UWorld* const World = GetWorld();
+	if (!World) return;
+	FActorSpawnParameters ActorSpawnParms;
+	ActorSpawnParms.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ActorSpawnParms.Owner = Character;
+	ActorSpawnParms.Instigator = Character;
+	As1mpleFpsProjectile* Projectile = World->SpawnActor<As1mpleFpsProjectile>(WeaponData->ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParms);
+	if (Projectile) {
+		Projectile->Damage = WeaponData->BaseDamage;
+		Projectile->ArmorPenetration = WeaponData->ArmorPenetration;
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("[PerformFire] FAILED to spawn projectile: Class=%s"), *WeaponData->ProjectileClass->GetName());
+	}
+	UAISense_Hearing::ReportNoiseEvent(
+		GetWorld(),
+		Character->GetActorLocation(),
+		1.0f,
+		Character,
+		0.0f,
+		TEXT("Gunshot")
+	);
+}
+
+void UTP_WeaponComponent::StartFire()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[StartFire] Weapon=%s, Character=%s, CurrentWeapon=%s, bIsReloading=%d, CurrentAmmo=%d"),
+		*GetName(), *GetNameSafe(Character), *GetNameSafe(Character ? Character->CurrentWeapon : nullptr), (int32)bIsReloading, CurrentAmmo);
+	if (!Character || Character->CurrentWeapon != this)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[StartFire] BLOCKED: Character or CurrentWeapon mismatch"));
+		return;
+	}
+	if (!Character->GetController()) return;
+	if (bIsReloading) return;
+	if (CurrentAmmo <= 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[StartFire] BLOCKED: No ammo"));
+		return;
+	}
+
+	bIsTriggerHeld = true;
+
+	switch (CurrentFireMode) {
+	case EFireModeEnum::SemiAuto:
+		if (bIsOnFireCooldown) return;
+		StartSingleFire();
+		break;
+	case EFireModeEnum::FullAuto:
+		bIsOnFireCooldown = false;
+		GetWorld()->GetTimerManager().ClearTimer(FireRateTimerHandle);
+		StartSingleFire();
+		break;
+	case EFireModeEnum::Burst:
+		if (BurstRemaining <= 0) {
+			BurstRemaining = FMath::Min(CurrentAmmo, WeaponData ? WeaponData->BurstCount : 3);
+			StartSingleFire();
+		}
+		break;
+	}
+}
+
+void UTP_WeaponComponent::StopFire()
+{
+	bIsTriggerHeld = false;
+	if (CurrentFireMode == EFireModeEnum::FullAuto)
+	{
+		GetWorld()->GetTimerManager().ClearTimer(AutoFireHandle);
+	}
+}
+
+void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (!WeaponData) return;
+	if (!Character) return;
+	if (Character->CurrentWeapon != this) return;
+	if (Character->bIsDead) return;
+
+	ApplyAndDecayRecoil(DeltaTime);
+	ApplyAndDecaySpread(DeltaTime);
+	DecayMuzzleShake(DeltaTime);
+
+	// FOV 插值：使用 Character 自己的 Controller，而非 PlayerIndex 0（多人时客户端拿不到）
+	APlayerController* PC = Cast<APlayerController>(Character->GetController());
+	if (PC && PC->GetPawn() == Character)
+	{
+		APlayerCameraManager* Camera = PC->PlayerCameraManager;
+		if (Camera)
+		{
+			CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaTime, AimInterpSpeed);
+			Camera->SetFOV(CurrentFOV);
+		}
+	}
+}
+
+void UTP_WeaponComponent::ApplyAndDecayRecoil(float DeltaTime)
+{
+	if (AccumulatedRecoil.IsNearlyZero()) return;
+	FVector2D ToApply = FVector2D::ZeroVector;
+	if (WeaponData) {
+		float Factor = FMath::Clamp(WeaponData->RecoilRecoverySpeed * DeltaTime, 0.0f, 1.0f);
+		ToApply = AccumulatedRecoil * Factor;
+		if (Character) {
+			if (APlayerController* PC = Cast<APlayerController>(Character->GetController())) {
+				PC->AddPitchInput(ToApply.Y);
+				PC->AddYawInput(ToApply.X);
+			}
+		}
+	}
+	AccumulatedRecoil -= ToApply;
+}
+
+void UTP_WeaponComponent::ApplyAndDecaySpread(float DeltaTime)
+{
+	float EffectiveBase = WeaponData->BaseSpread;
+	if (bIsAiming) EffectiveBase *= ADSConcentration;
+
+	if (!bIsTriggerHeld)
+	{
+		CurrentSpread = FMath::Max(
+			CurrentSpread - WeaponData->SpreadRecoverySpeed * DeltaTime,
+			EffectiveBase
+		);
+	}
+}
+
+void UTP_WeaponComponent::DecayMuzzleShake(float DeltaTime)
+{
+	if (MuzzleShakeOffset.IsNearlyZero() && MuzzleShakeRotation.IsNearlyZero())
+	{
+		return;
+	}
+
+	const float DecaySpeed = WeaponData ? WeaponData->MuzzleShakeDecaySpeed : 12.0f;
+
+	MuzzleShakeOffset = FMath::VInterpTo(MuzzleShakeOffset, FVector::ZeroVector, DeltaTime, DecaySpeed);
+	MuzzleShakeRotation = FMath::RInterpTo(MuzzleShakeRotation, FRotator::ZeroRotator, DeltaTime, DecaySpeed);
+
+	const FQuat ShakeQuat = MuzzleShakeRotation.Quaternion() * MuzzleOriginalRotation.Quaternion();
+	SetRelativeRotation(ShakeQuat);
+	SetRelativeLocation(MuzzleOriginalLocation + MuzzleShakeOffset);
+}
+
+
+void UTP_WeaponComponent::ResetFireCooldown()
+{
+	bIsOnFireCooldown = false;
+}
+
+bool UTP_WeaponComponent::AttachWeapon(As1mpleFpsCharacter* TargetCharacter)
+{
+	if (TargetCharacter == nullptr)
+	{
+		return false;
+	}
+
+	Character = TargetCharacter;
+
+	if (WeaponData)
+	{
+		CurrentAmmo = WeaponData->MaxProjectile;
+		SpareAmmo = WeaponData->TotalProjectiles;
+		ReplicatedCurrentAmmo = WeaponData->MaxProjectile;
+		ReplicatedSpareAmmo = WeaponData->TotalProjectiles;
+		CurrentFireMode = WeaponData->FireMode;
+		CurrentSpread = WeaponData->BaseSpread;
+		// 从 WeaponData 补充网格和音效
+		if (!GetSkeletalMeshAsset() && WeaponData->WeaponMesh)
+			SetSkeletalMeshAsset(WeaponData->WeaponMesh);
+		if (!FireSound && WeaponData->FireSound)
+			FireSound = WeaponData->FireSound;
+		if (!FireAnimation && WeaponData->FireAnimation)
+			FireAnimation = WeaponData->FireAnimation;
+	}
+
+	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
+	AttachToComponent(Character->GetMesh1P(), AttachmentRules, FName(TEXT("GripPoint")));
+
+	MuzzleOriginalLocation = GetRelativeLocation();
+	MuzzleOriginalRotation = GetRelativeRotation();
+
+	SetVisibility(false);
+	bIsEquipped = false;
+
+	return true;
+}
+
+void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (IsValid(Character))
+	{
+		Character->CurrentWeapon = nullptr;
+
+		if (APlayerController* PlayerController = Cast<APlayerController>(Character->GetController()))
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+			{
+				Subsystem->RemoveMappingContext(FireMappingContext);
+			}
+		}
+	}
+	Super::EndPlay(EndPlayReason);
+}
