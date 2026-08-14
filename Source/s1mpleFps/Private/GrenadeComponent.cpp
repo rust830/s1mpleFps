@@ -9,6 +9,8 @@
 #include "GrenadeProjectile.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 
 UGrenadeComponent::UGrenadeComponent()
 {
@@ -23,11 +25,29 @@ void UGrenadeComponent::BeginPlay()
 	if (OwnerCharacter) {
 		CachedCamera = OwnerCharacter->GetFirstPersonCameraComponent();
 	}
+
+	// 落点预测线：运行时创建，纯本地、无碰撞、不复制（只存在于本地客户端）
+	TrajectoryDots = NewObject<UInstancedStaticMeshComponent>(OwnerCharacter, TEXT("TrajectoryDots"));
+	TrajectoryDots->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	TrajectoryDots->SetCastShadow(false);
+	TrajectoryDots->SetStaticMesh(TrajectoryDotMesh);
+	TrajectoryDots->RegisterComponent();
+
+	LandingMarker = NewObject<UStaticMeshComponent>(OwnerCharacter, TEXT("LandingMarker"));
+	LandingMarker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	LandingMarker->SetCastShadow(false);
+	LandingMarker->SetStaticMesh(TrajectoryLandMesh);
+	LandingMarker->RegisterComponent();
+	LandingMarker->SetVisibility(false);
 }
 
 void UGrenadeComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// 落点预测线：捏雷时每帧刷新，否则隐藏
+	UpdateTrajectoryPreview();
+
 	if (!bIsCooking)return;
 	UGrenadeData* Data = GetCurrnetGrenade();
 	if (!Data)return;
@@ -123,6 +143,7 @@ void UGrenadeComponent::ForceUnequip()
 	bIsCooking = false;
 	CookingElapsed = 0.0f;
 	bIsLowThrow = false;
+	HideHeldGrenade();
 	RemoveGrenadeMappingContext();
 	if (bIsEquipped)
 	{
@@ -156,6 +177,7 @@ void UGrenadeComponent::UnequippedGrenade()
 	CookingElapsed = 0.0f;
 	bIsLowThrow = false;
 
+	HideHeldGrenade();
 	RemoveGrenadeMappingContext();
 
 	if (OwnerCharacter && OwnerCharacter->CurrentWeapon)
@@ -170,32 +192,16 @@ void UGrenadeComponent::PerformThrowGrenade()
 	if (!HasGrenade() || !OwnerCharacter) return;
 	UGrenadeData* Data = GetCurrnetGrenade();
 	if (!Data || !Data->GrenadeProjectileClass)return;
-	FVector CamLocation;
-	FRotator CamRotation;
-	if (CachedCamera)
-	{
-		CamLocation = CachedCamera->GetComponentLocation();
-		CamRotation = CachedCamera->GetComponentRotation();
-	}
-	else
-	{
-		CamLocation = OwnerCharacter->GetActorLocation();
-		CamRotation = OwnerCharacter->GetActorRotation();
-	}
 
-	float Speed = bIsLowThrow ? Data->LowThrowSpeed : Data->HighThrowSpeed;
-	float AngleRad = FMath::DegreesToRadians(bIsLowThrow ? Data->LowThrowAngle : Data->HighThrowAngle);
-
-	FVector Forward = CamRotation.Vector();
-	FVector Up = FVector::UpVector;
-	FVector ThrowDir = Forward * FMath::Cos(AngleRad) + Up * FMath::Sin(AngleRad);
-	ThrowDir.Normalize();
-	FVector ThrowVelocity = ThrowDir * Speed;
+	FVector ThrowVelocity = ComputeThrowVelocity();
 	float RemainingFuse = Data->FusingTime;
 	if (bIsCooking && CookingElapsed > 0) {
 		RemainingFuse = FMath::Max(RemainingFuse - CookingElapsed, 0.05f);
 	}
 	ServerThrowGrenade(CurrentGrenadeIndex, ThrowVelocity, RemainingFuse);
+
+	// 雷已出手：隐藏手中的捏雷
+	HideHeldGrenade();
 
 	// 投掷完不自动退出投掷模式，只重置烹饪状态，玩家可继续投下一颗或手动退出
 	bIsCooking = false;
@@ -209,9 +215,21 @@ void UGrenadeComponent::OnStartCooking()
 	bIsCooking = true;
 	CookingElapsed = 0.0f;
 
-
+	// 按下高抛/低抛瞬间：右手捏一颗本地雷（无碰撞、无初速，仅本地可见）
+	ShowHeldGrenade();
 
 	UGrenadeData* Data = GetCurrnetGrenade();
+	if (Data)
+	{
+		// 诊断：确认低抛是不是真的向下（VelZ<0 才是向下抛）
+		FVector Vel = ComputeThrowVelocity();
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Grenade] OnStartCooking: bIsLowThrow=%d Angle=%.1f Speed=%.0f VelZ=%.0f (VelZ<0=向下抛)"),
+			(int32)bIsLowThrow,
+			bIsLowThrow ? Data->LowThrowAngle : Data->HighThrowAngle,
+			bIsLowThrow ? Data->LowThrowSpeed : Data->HighThrowSpeed,
+			Vel.Z);
+	}
 	if (Data && Data->PinPullSound)
 		UGameplayStatics::PlaySound2D(GetWorld(), Data->PinPullSound);
 
@@ -319,4 +337,141 @@ void UGrenadeComponent::ServerThrowGrenade_Implementation(int32 GrenadeIndex, FV
 	}
 	// 服务端(主机)也要广播刷新 HUD；远程客户端靠 OnRep_GrenadeInventory
 	OnGrenadeInventoryChanged.Broadcast();
+}
+
+FVector UGrenadeComponent::ComputeThrowVelocity()
+{
+	UGrenadeData* Data = GetCurrnetGrenade();
+	if (!Data) return FVector::ZeroVector;
+
+	FRotator CamRotation;
+	if (CachedCamera)
+	{
+		CamRotation = CachedCamera->GetComponentRotation();
+	}
+	else if (OwnerCharacter)
+	{
+		CamRotation = OwnerCharacter->GetActorRotation();
+	}
+	else
+	{
+		return FVector::ZeroVector;
+	}
+
+	float Speed = bIsLowThrow ? Data->LowThrowSpeed : Data->HighThrowSpeed;
+	float AngleRad = FMath::DegreesToRadians(bIsLowThrow ? Data->LowThrowAngle : Data->HighThrowAngle);
+
+	FVector Forward = CamRotation.Vector();
+	FVector Up = FVector::UpVector;
+	FVector ThrowDir = Forward * FMath::Cos(AngleRad) + Up * FMath::Sin(AngleRad);
+	ThrowDir.Normalize();
+	return ThrowDir * Speed;
+}
+
+void UGrenadeComponent::ShowHeldGrenade()
+{
+	if (!OwnerCharacter) return;
+	// 捏雷只在本地玩家的第一人称手臂上出现（输入只在本地触发，这里再兜底一次）
+	if (!OwnerCharacter->IsLocallyControlled()) return;
+
+	UGrenadeData* Data = GetCurrnetGrenade();
+	if (!Data || !Data->GrenadeMesh) return;
+
+	if (!HeldGrenadeMesh)
+	{
+		HeldGrenadeMesh = NewObject<UStaticMeshComponent>(OwnerCharacter, TEXT("HeldGrenadeMesh"));
+		HeldGrenadeMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 禁用碰撞
+		HeldGrenadeMesh->SetCastShadow(false);
+		HeldGrenadeMesh->SetOnlyOwnerSee(true); // 仅本地可见
+		HeldGrenadeMesh->RegisterComponent();
+		HeldGrenadeMesh->AttachToComponent(OwnerCharacter->GetMesh1P(),
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale, ThrowSocketName);
+	}
+
+	// 只是挂在手上静止：没有移动组件、没有初速
+	HeldGrenadeMesh->SetStaticMesh(Data->GrenadeMesh);
+	HeldGrenadeMesh->SetRelativeLocation(HeldGrenadeRelativeLocation);
+	HeldGrenadeMesh->SetRelativeRotation(HeldGrenadeRelativeRotation);
+	HeldGrenadeMesh->SetRelativeScale3D(HeldGrenadeRelativeScale);
+	HeldGrenadeMesh->SetVisibility(true);
+}
+
+void UGrenadeComponent::HideHeldGrenade()
+{
+	if (HeldGrenadeMesh)
+		HeldGrenadeMesh->SetVisibility(false);
+}
+
+void UGrenadeComponent::UpdateTrajectoryPreview()
+{
+	// 非捏雷状态：清空并隐藏预测线
+	if (!bIsCooking || !OwnerCharacter || !CachedCamera || !GetWorld())
+	{
+		if (TrajectoryDots) TrajectoryDots->ClearInstances();
+		if (LandingMarker) LandingMarker->SetVisibility(false);
+		return;
+	}
+
+	UGrenadeData* Data = GetCurrnetGrenade();
+	if (!Data)
+	{
+		if (TrajectoryDots) TrajectoryDots->ClearInstances();
+		if (LandingMarker) LandingMarker->SetVisibility(false);
+		return;
+	}
+
+	// ① 预测第一次落点（不反弹），初速与重力同真实投掷一致
+	FPredictProjectilePathParams Params;
+	Params.StartLocation = CachedCamera->GetComponentLocation();
+	Params.LaunchVelocity = ComputeThrowVelocity();
+	Params.bTraceWithCollision = true;
+	Params.bTraceWithChannel = true;
+	Params.TraceChannel = ECC_WorldStatic;
+	Params.ProjectileRadius = 5.f;
+	Params.MaxSimTime = Data->FusingTime;
+	Params.SimFrequency = 30.f;
+	Params.OverrideGravityZ = GetWorld()->GetGravityZ() * Data->GravityScale;
+	Params.ActorsToIgnore.Add(OwnerCharacter);
+
+	FPredictProjectilePathResult Result;
+	UGameplayStatics::PredictProjectilePath(this, Params, Result);
+
+	// ② 沿路径点按固定间距撒「点」（PathData 点距不均，插值到 DotSpacing）
+	if (TrajectoryDots && TrajectoryDotMesh)
+	{
+		TrajectoryDots->ClearInstances();
+		float Accum = 0.f;
+		for (int32 i = 1; i < Result.PathData.Num(); ++i)
+		{
+			FVector A = Result.PathData[i - 1].Location;
+			FVector B = Result.PathData[i].Location;
+			float SegLen = FVector::Dist(A, B);
+			while (SegLen > 0.f && Accum + SegLen >= DotSpacing)
+			{
+				float T = (DotSpacing - Accum) / SegLen;
+				FVector DotPos = FMath::Lerp(A, B, T);
+				FTransform Xform(FRotator::ZeroRotator, DotPos, FVector(DotScale));
+				TrajectoryDots->AddInstance(Xform);
+				SegLen -= (DotSpacing - Accum);
+				Accum = 0.f;
+				A = FMath::Lerp(A, B, T);
+			}
+			Accum += SegLen;
+		}
+	}
+
+	// ③ 落点标记（贴着命中面，沿法线抬一点避免穿插）
+	if (LandingMarker && TrajectoryLandMesh)
+	{
+		if (Result.HitResult.bBlockingHit)
+		{
+			LandingMarker->SetVisibility(true);
+			LandingMarker->SetWorldLocation(Result.HitResult.ImpactPoint + Result.HitResult.ImpactNormal * 2.f);
+			LandingMarker->SetWorldRotation(FRotationMatrix::MakeFromZ(Result.HitResult.ImpactNormal).Rotator());
+		}
+		else
+		{
+			LandingMarker->SetVisibility(false);
+		}
+	}
 }

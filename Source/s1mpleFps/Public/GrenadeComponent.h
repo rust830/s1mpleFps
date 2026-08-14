@@ -16,6 +16,8 @@ class As1mpleFpsCharacter;
 class UInputMappingContext;
 class UInputAction;
 class UCameraComponent;
+class UStaticMeshComponent;
+class UInstancedStaticMeshComponent;
 
 UCLASS(ClassGroup=(Custom), Blueprintable, meta=(BlueprintSpawnableComponent))
 class S1MPLEFPS_API UGrenadeComponent : public UActorComponent
@@ -77,6 +79,24 @@ public:
 	UPROPERTY(EditAnywhere,BlueprintReadOnly)
 	FName ThrowSocketName = TEXT("hand_r");
 
+	// 捏雷视觉的本地相对变换（在右手 socket 上的微调）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grenade")
+	FVector HeldGrenadeRelativeLocation = FVector(0.f, 0.f, 0.f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grenade")
+	FRotator HeldGrenadeRelativeRotation = FRotator::ZeroRotator;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grenade")
+	FVector HeldGrenadeRelativeScale = FVector(1.f, 1.f, 1.f);
+
+	// 落点预测线（本地可见，点状虚线）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trajectory")
+	UStaticMesh* TrajectoryDotMesh = nullptr;    // 沿途的小圆点
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trajectory")
+	UStaticMesh* TrajectoryLandMesh = nullptr;   // 落点标记（环/叉）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trajectory")
+	float DotSpacing = 25.f;                     // 点间距
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trajectory")
+	float DotScale = 0.08f;                      // 点的缩放（取决于网格尺寸）
+
 
 	UPROPERTY(BlueprintAssignable)
 	FOnGrenadeEquipped OnGrenadeEquipped;
@@ -91,6 +111,9 @@ public:
 	void ForceUnequip();  // 死亡时强制收回（无视 bIsCooking）
 	void RemoveGrenadeMappingContext();
 
+	// 计算当前投掷初速度（高抛/低抛共用），供 PerformThrowGrenade 与落点预测复用
+	FVector ComputeThrowVelocity();
+
 	UFUNCTION()
 	void NextGrenade();
 	UFUNCTION()
@@ -101,6 +124,9 @@ protected:
 	void PerformThrowGrenade();
 	void OnStartCooking();
 	void AddGrenadeMappingContext();
+	void ShowHeldGrenade();
+	void HideHeldGrenade();
+	void UpdateTrajectoryPreview();
 
 	UFUNCTION()
 	void OnRep_GrenadeInventory();
@@ -115,4 +141,12 @@ protected:
 	As1mpleFpsCharacter* OwnerCharacter;
 	UPROPERTY()
 	UCameraComponent* CachedCamera;
+	// 右手捏着的本地雷（静态网格组件，无碰撞、无初速、仅本地可见）
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> HeldGrenadeMesh;
+	// 落点预测线渲染组件（纯本地，运行时创建、不复制）
+	UPROPERTY(Transient)
+	TObjectPtr<UInstancedStaticMeshComponent> TrajectoryDots;
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> LandingMarker;
 };

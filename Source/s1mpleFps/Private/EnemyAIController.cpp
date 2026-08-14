@@ -179,6 +179,11 @@ void AEnemyAIController::OnPossess(APawn* Inpawn)
 {
 	Super::OnPossess(Inpawn);
 	AEnemyCharacter* Enemy = Cast<AEnemyCharacter>(Inpawn);
+	// 从敌人身上拷贝小队角色（Controller 由 AutoPossess 自动生成，无法在关卡里单独设 TeamRole）
+	if (Enemy)
+	{
+		TeamRole = Enemy->SquadRole;
+	}
 	UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] OnPossess: %s"), Enemy ? TEXT("EnemyCharacter OK") : TEXT("Cast FAILED"));
 	if (Enemy && Enemy->BehaviourTree) {
 		RunBehaviorTree(Enemy->BehaviourTree);

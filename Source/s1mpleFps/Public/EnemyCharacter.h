@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "EnemyAIController.h"
 #include "EnemyCharacter.generated.h"
 
 class UDamageComponent;
@@ -34,6 +35,10 @@ public:
 	int32 TotalAmmo = 150;
 	UPROPERTY(EditAnywhere,BlueprintReadWrite)
 	float OptimalCombatDistance = 5000.f;
+
+	// 小队角色：在关卡里给每个敌人单独设置，OnPossess 时拷贝给 AI Controller
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Squad")
+	ESquatRole SquadRole = ESquatRole::Assault;
 
 
 	UPROPERTY(EditAnywhere,BlueprintReadWrite)
