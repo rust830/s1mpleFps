@@ -188,18 +188,23 @@ void As1mpleFpsCharacter::Die()
 			PC->bShowMouseCursor = true;
 		}
 
-		// Show death screen
-		if (DeathScreenWidget)
+		// Show death screen（PvE 任务已结束时不弹死亡界面，交给结算界面替代）
+		As1mpleFpsGameMode* SPGM = GetWorld()->GetAuthGameMode<As1mpleFpsGameMode>();
+		const bool bMissionOver = SPGM && (SPGM->bMissionCompleted || SPGM->bMissionFailed);
+		if (!bMissionOver)
 		{
-			DeathScreenWidget->RemoveFromParent();
-			DeathScreenWidget = nullptr;
-		}
-		if (DeathScreenWidgetClass)
-		{
-			DeathScreenWidget = CreateWidget<UUserWidget>(GetWorld(), DeathScreenWidgetClass);
 			if (DeathScreenWidget)
 			{
-				DeathScreenWidget->AddToViewport(100);
+				DeathScreenWidget->RemoveFromParent();
+				DeathScreenWidget = nullptr;
+			}
+			if (DeathScreenWidgetClass)
+			{
+				DeathScreenWidget = CreateWidget<UUserWidget>(GetWorld(), DeathScreenWidgetClass);
+				if (DeathScreenWidget)
+				{
+					DeathScreenWidget->AddToViewport(100);
+				}
 			}
 		}
 	}
