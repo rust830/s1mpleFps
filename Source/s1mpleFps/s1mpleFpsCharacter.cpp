@@ -150,6 +150,7 @@ void As1mpleFpsCharacter::Die()
 	{
 		ReplicatedHealth = DamageComponent->CurrentHealth;
 
+		bool bShouldRespawn = true;
 		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
 		{
 			APlayerState* KillerPS = nullptr;
@@ -162,9 +163,17 @@ void As1mpleFpsCharacter::Die()
 			}
 			GM->OnKill(KillerPS, GetPlayerState());
 		}
+		else if (As1mpleFpsGameMode* SPGM = GetWorld()->GetAuthGameMode<As1mpleFpsGameMode>())
+		{
+			// PvE：通知 GameMode 玩家死亡（失败判定），失败则不再复活
+			bShouldRespawn = SPGM->OnPlayerDeath();
+		}
 
-		// 自动复活计时器
-		GetWorldTimerManager().SetTimer(RespawnHandle, this, &As1mpleFpsCharacter::Respawn, RespawnDelay, false);
+		// 自动复活计时器（PvE 失败后不再复活）
+		if (bShouldRespawn)
+		{
+			GetWorldTimerManager().SetTimer(RespawnHandle, this, &As1mpleFpsCharacter::Respawn, RespawnDelay, false);
+		}
 	}
 
 	// === 仅本地玩家执行（死亡界面 + 输入模式） ===

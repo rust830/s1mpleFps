@@ -39,7 +39,6 @@ void As1mpleFpsPvPGameMode::OnKill(APlayerState* KillerPS, APlayerState* VictimP
 		const FString& KillerName = Killer->GetPlayerName();
 		const FString& VictimName = Victim->GetPlayerName();
 		GS->MulticastKillPlay(KillerName, VictimName);
-		CheckWinnerCondition(Killer);
 	}
 }
 

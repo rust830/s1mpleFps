@@ -30,10 +30,40 @@ void As1mpleFpsGameMode::OnKill(AActor* Killer, AActor* Victim)
 		*GetNameSafe(Killer), *GetNameSafe(Victim));
 
 	OnStatsUpdated.Broadcast(PlayerKills, PlayerDeaths, PlayerScore);
+
+	CheckWinCondition();
+}
+
+void As1mpleFpsGameMode::CheckWinCondition()
+{
+	if (bMissionCompleted || bMissionFailed) return;
+	if (PlayerKills >= EnemyKillTarget)
+	{
+		bMissionCompleted = true;
+		UE_LOG(LogTemp, Warning, TEXT("[GameMode] Mission COMPLETE: kills=%d / target=%d"), PlayerKills, EnemyKillTarget);
+		OnMissionResult.Broadcast(true);
+	}
+}
+
+bool As1mpleFpsGameMode::OnPlayerDeath()
+{
+	if (bMissionCompleted || bMissionFailed) return false;
+	if (!bFailOnPlayerDeath)
+	{
+		// 无尽模式：死亡继续复活，仅以击杀目标获胜
+		return true;
+	}
+	bMissionFailed = true;
+	UE_LOG(LogTemp, Warning, TEXT("[GameMode] Mission FAILED: player died (kills=%d / target=%d)"), PlayerKills, EnemyKillTarget);
+	OnMissionResult.Broadcast(false);
+	return false;
 }
 
 void As1mpleFpsGameMode::ScheduleEnemyRespawn(TSubclassOf<AEnemyCharacter> EnemyClass, FVector SpawnLoc, FRotator SpawnRot, float Delay)
 {
+	// 任务结束后不再重生敌人
+	if (bMissionCompleted || bMissionFailed) return;
+
 	UE_LOG(LogTemp, Warning, TEXT("[GameMode] Enemy respawn scheduled: %s in %.1fs"), *EnemyClass->GetName(), Delay);
 	FTimerHandle Handle;
 	GetWorldTimerManager().SetTimer(Handle, [this, EnemyClass, SpawnLoc, SpawnRot]() {

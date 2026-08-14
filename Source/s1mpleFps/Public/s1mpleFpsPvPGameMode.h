@@ -4,6 +4,8 @@
 #include "GameFramework/GameModeBase.h"
 #include "s1mpleFpsPvPGameMode.generated.h"
 
+class As1mpleFpsPlayerState;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPvPStatsUpdated, int32, Kills, int32, Deaths, int32, Score);
 
 UCLASS()

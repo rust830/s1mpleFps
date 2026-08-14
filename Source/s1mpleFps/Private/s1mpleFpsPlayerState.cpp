@@ -2,6 +2,7 @@
 
 
 #include "s1mpleFpsPlayerState.h"
+#include "s1mpleFpsPvPGameMode.h"
 #include "Net/UnrealNetwork.h"
 
 void As1mpleFpsPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -41,6 +42,12 @@ void As1mpleFpsPlayerState::AddKill()
 	Kills++;
 	Scores += 100;
 	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
+
+	// 权威端：击杀写入后立即判定胜负（事件驱动，避免 GameMode 每帧轮询）
+	if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
+	{
+		GM->CheckWinnerCondition(this);
+	}
 }
 
 void As1mpleFpsPlayerState::AddDeath()

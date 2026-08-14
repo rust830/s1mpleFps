@@ -166,7 +166,6 @@ const TArray<FBuyItemEntry>& As1mpleFpsPlayerController::GetBuyItems() const
 {
 	static const TArray<FBuyItemEntry> Empty;
 	return BuyEquipmentData ? BuyEquipmentData->Items : Empty;
-	// TODO: 在此处插入 return 语句
 }
 
 int32 As1mpleFpsPlayerController::GetCurrentMoney() const

@@ -41,6 +41,7 @@
 - 小队协调（目标共享、角色分配：Assault/Suppressor/Flanker）
 - 掩体寻找、撤退、换弹 AI 行为
 - 死亡重生机制
+- 胜负判定：击杀目标数获胜 / 玩家死亡失败（蓝图可调）
 
 ### 🌐 PvP 网络
 - Listen Server + Steam 联机
