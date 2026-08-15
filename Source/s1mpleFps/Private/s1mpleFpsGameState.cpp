@@ -19,7 +19,7 @@ void As1mpleFpsGameState::MulticastReceivedChatMessage_Implementation(const FStr
 void As1mpleFpsGameState::StartCountdown()
 {
 	if (HasAuthority()) {
-		UE_LOG(LogTemp, Warning, TEXT("[GameState] StartCountdown - entering warmup phase"));
+		
 		bIsWarmUp = true;
 		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>()) {
 			WarmUpTime = GM->WarmUpDuration;
@@ -39,7 +39,7 @@ void As1mpleFpsGameState::TickCountdown()
 	}
 	if (MatchTimeRemaining <= 0) return;
 	MatchTimeRemaining -= 1;
-	UE_LOG(LogTemp, Warning, TEXT("[GameState] TickCountdown - TimeRemaining=%.0f"), MatchTimeRemaining);
+	
 	OnMatchTimeChanged.Broadcast(MatchTimeRemaining);
 	if (MatchTimeRemaining <= 0)
 	{
@@ -89,7 +89,7 @@ void As1mpleFpsGameState::TickWarmUp()
 {
 	if (!HasAuthority())return;
 	WarmUpTime -= 1;
-	UE_LOG(LogTemp, Warning, TEXT("[GameState] TickWarmUp - WarmUpTime=%.0f"), WarmUpTime);
+	
 	OnWarmUpTimeChanged.Broadcast(WarmUpTime);
 	if (WarmUpTime <= 0.f) {
 		WarmUpTime = 0;

@@ -25,9 +25,7 @@ void As1mpleFpsGameMode::OnKill(AActor* Killer, AActor* Victim)
 		PlayerDeaths++;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[GameMode] Kill: %d | Death: %d | Score: %d | Killer: %s | Victim: %s"),
-		PlayerKills, PlayerDeaths, PlayerScore,
-		*GetNameSafe(Killer), *GetNameSafe(Victim));
+	
 
 	OnStatsUpdated.Broadcast(PlayerKills, PlayerDeaths, PlayerScore);
 
@@ -40,7 +38,7 @@ void As1mpleFpsGameMode::CheckWinCondition()
 	if (PlayerKills >= EnemyKillTarget)
 	{
 		bMissionCompleted = true;
-		UE_LOG(LogTemp, Warning, TEXT("[GameMode] Mission COMPLETE: kills=%d / target=%d"), PlayerKills, EnemyKillTarget);
+		
 		OnMissionResult.Broadcast(true);
 	}
 }
@@ -54,7 +52,7 @@ bool As1mpleFpsGameMode::OnPlayerDeath()
 		return true;
 	}
 	bMissionFailed = true;
-	UE_LOG(LogTemp, Warning, TEXT("[GameMode] Mission FAILED: player died (kills=%d / target=%d)"), PlayerKills, EnemyKillTarget);
+	
 	OnMissionResult.Broadcast(false);
 	return false;
 }
@@ -64,7 +62,7 @@ void As1mpleFpsGameMode::ScheduleEnemyRespawn(TSubclassOf<AEnemyCharacter> Enemy
 	// 任务结束后不再重生敌人
 	if (bMissionCompleted || bMissionFailed) return;
 
-	UE_LOG(LogTemp, Warning, TEXT("[GameMode] Enemy respawn scheduled: %s in %.1fs"), *EnemyClass->GetName(), Delay);
+	
 	FTimerHandle Handle;
 	GetWorldTimerManager().SetTimer(Handle, [this, EnemyClass, SpawnLoc, SpawnRot]() {
 		// 世界可能已被销毁（重启游戏 / 退出 PIE）：GetWorld() 为 null 时停止重生，防止空指针崩溃
@@ -74,6 +72,6 @@ void As1mpleFpsGameMode::ScheduleEnemyRespawn(TSubclassOf<AEnemyCharacter> Enemy
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 		AEnemyCharacter* NewEnemy = World->SpawnActor<AEnemyCharacter>(EnemyClass, SpawnLoc, SpawnRot, Params);
-		UE_LOG(LogTemp, Warning, TEXT("[GameMode] Enemy respawned: %s at %s"), *GetNameSafe(NewEnemy), *SpawnLoc.ToString());
+		
 	}, Delay, false);
 }

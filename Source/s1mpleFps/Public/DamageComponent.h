@@ -63,11 +63,11 @@ public:
 		{
 			// 仅服务器（Dedicated 或 Listen）执行伤害。纯客户端跳过。
 			if (GetWorld() && GetWorld()->GetNetMode() == NM_Client) {
-				UE_LOG(LogTemp, Warning, TEXT("[DIAG] ApplyDamage SKIP client: Owner=%s"), *GetNameSafe(GetOwner()));
+				
 				return 0.0f;
 			}
 			if (CurrentHealth <= 0.0f) {
-				UE_LOG(LogTemp, Warning, TEXT("[DIAG] ApplyDamage SKIP health<=0: Owner=%s, CurrentHealth=%.0f"), *GetNameSafe(GetOwner()), CurrentHealth);
+				
 				return 0.0f;
 			}
 			// 1. HitZone 伤害倍率
@@ -83,8 +83,7 @@ public:
 			// 6. 扣血，不能扣超过剩余血量
 			float ActualDamage = (CurrentHealth - FinalDamage > 0) ? FinalDamage : CurrentHealth;
 			CurrentHealth -= ActualDamage;
-			UE_LOG(LogTemp, Warning, TEXT("[DIAG] ApplyDamage: Owner=%s, BaseDmg=%.0f, FinalDmg=%.0f, ActualDmg=%.0f, Health=%.0f/%.0f, bDead=%d"),
-				*GetNameSafe(GetOwner()), BaseDamage, FinalDamage, ActualDamage, CurrentHealth, MaxHealth, CurrentHealth <= 0.0f);
+			
 			OnDamaged.Broadcast(ActualDamage, Instigator);
 			if (CurrentHealth <= 0.0f) {
 				LastInstigator = Instigator;

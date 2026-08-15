@@ -75,7 +75,7 @@ void As1mpleFpsProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActo
 		if (HitChar->bIsDead) return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Projectile] OnHit: Other=%s, Instigator=%s, Damage=%.1f"), *OtherActor->GetName(), *GetNameSafe(GetInstigator()), Damage);
+	
 	if (UDamageComponent* Dmg = OtherActor->FindComponentByClass<UDamageComponent>())
 	{
 		Dmg->ApplyDamage(Hit.BoneName, Damage, ArmorPenetration, GetInstigator(), Hit.Location);

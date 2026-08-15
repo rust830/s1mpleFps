@@ -49,8 +49,7 @@ EBTNodeResult::Type UBTTask_Retreat::ExecuteTask(UBehaviorTreeComponent& OwnerCo
         RetreatLocation = MyPawn->GetActorLocation() + Backward * RetreatDistance;
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("BTTask_Retreat: Moving to %s (NavMesh: %s)"),
-        *RetreatLocation.ToString(), bFoundPoint ? TEXT("yes") : TEXT("no"));
+    
 
     AI->MoveToLocation(RetreatLocation, AcceptableRadius, true);
 

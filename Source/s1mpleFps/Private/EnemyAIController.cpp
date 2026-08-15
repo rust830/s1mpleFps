@@ -50,7 +50,7 @@ AEnemyAIController::AEnemyAIController()
 
 	PerceptionComponents->OnPerceptionUpdated.AddDynamic(this, &AEnemyAIController::OnPerceptionUpdated);
 
-	UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] Constructor done"));
+	
 }
 
 void AEnemyAIController::OnPerceptionUpdated(const TArray<AActor*>& UpdatedActor)
@@ -138,7 +138,7 @@ void AEnemyAIController::OnPerceptionUpdated(const TArray<AActor*>& UpdatedActor
 
 	if (BestTarget)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] >> BestTarget: %s"), *BestTarget->GetName());
+		
 		SetFocus(BestTarget, EAIFocusPriority::Gameplay);
 		BB->SetValueAsObject("TargetActor", BestTarget);
 		if (bBestWasDamaged)
@@ -171,7 +171,7 @@ void AEnemyAIController::OnPerceptionUpdated(const TArray<AActor*>& UpdatedActor
 			}
 			if (!bStillSensed)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] >> TargetActor %s lost, clearing"), *CurrentTarget->GetName());
+				
 				ClearFocus(EAIFocusPriority::Gameplay);
 				BB->ClearValue("TargetActor");
 			}
@@ -188,10 +188,10 @@ void AEnemyAIController::OnPossess(APawn* Inpawn)
 	{
 		TeamRole = Enemy->SquadRole;
 	}
-	UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] OnPossess: %s"), Enemy ? TEXT("EnemyCharacter OK") : TEXT("Cast FAILED"));
+	
 	if (Enemy && Enemy->BehaviourTree) {
 		RunBehaviorTree(Enemy->BehaviourTree);
-		UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] BT started"));
+		
 	}
 
 	// 延迟 0.5s 等所有 AI Spawn 完毕再组队
@@ -224,18 +224,6 @@ void AEnemyAIController::Tick(float DeltaTime)
 	// which reads the focus actor set by OnPerceptionUpdated via SetFocus().
 	// GetDesiredRotation() automatically uses the focus actor's CURRENT location,
 	// so no manual SetFocalPoint or SetControlRotation is needed.
-
-	static float LastDebugLog = -1.f;
-	float Now = GetWorld()->GetTimeSeconds();
-	if (Now - LastDebugLog > 2.0f)
-	{
-		UBlackboardComponent* BB = GetBlackboardComponent();
-		AActor* Target = BB ? Cast<AActor>(BB->GetValueAsObject("TargetActor")) : nullptr;
-		EAIState State = BB ? (EAIState)BB->GetValueAsEnum("CurrentState") : EAIState::Idle;
-		UE_LOG(LogTemp, Warning, TEXT("[AI Debug] %s | State: %d | Target: %s | HasPawn: %d"),
-			*GetName(), (int32)State, *GetNameSafe(Target), GetPawn() != nullptr);
-		LastDebugLog = Now;
-	}
 
 	ShareTargetWithSquad();
 }
@@ -273,16 +261,6 @@ void AEnemyAIController::UpdateBlackboardState()
 		bool bHasLos = !LosHit.bBlockingHit || LosHit.GetActor() == TargetActor;
 
 		BB->SetValueAsBool("HasLineOfSight", bHasLos);
-
-		static float LastLosLog = -1.f;
-		float Now2 = GetWorld()->GetTimeSeconds();
-		if (Now2 - LastLosLog > 0.5f)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] LOS: %s  (blocked by: %s)"),
-				bHasLos ? TEXT("CLEAR") : TEXT("BLOCKED"),
-				bHasLos ? TEXT("none") : *LosHit.GetActor()->GetName());
-			LastLosLog = Now2;
-		}
 
 		if (bHasLos)
 			BB->SetValueAsVector("TargetLocation", TargetActor->GetActorLocation());
@@ -342,8 +320,7 @@ void AEnemyAIController::UpdateAlertValue(float DeltaTime)
 	EAlertLevel OldLevel = (EAlertLevel)BB->GetValueAsEnum("AlertLevel");
 	if (OldLevel != NewAlertLevel)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] AlertLevel: %d -> %d (Val=%.2f)"),
-			(uint8)OldLevel, (uint8)NewAlertLevel, AlertValue);
+		
 	}
 
 	BB->SetValueAsEnum("AlertLevel", (uint8)NewAlertLevel);
@@ -391,7 +368,7 @@ void AEnemyAIController::UpdateAlertValue(float DeltaTime)
 	if (NewState == EAIState::Combat && PreviousAIState != EAIState::Combat)
 	{
 		TimeEnteredCombat = CurrentTime;
-		UE_LOG(LogTemp, Warning, TEXT("[AI Ctrl] >> ENTERED COMBAT at t=%.2f"), CurrentTime);
+		
 	}
 	PreviousAIState = NewState;
 }
@@ -483,7 +460,7 @@ void AEnemyAIController::EnemyFire()
 		// 命中友军（其他敌人）时跳过伤害，避免小队自相残杀；开火音效/动画照常播放
 		if (Cast<AEnemyCharacter>(Hit.GetActor()))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("AI fire blocked by ally: %s"), *Hit.GetActor()->GetName());
+			
 		}
 		else
 		{
@@ -491,12 +468,11 @@ void AEnemyAIController::EnemyFire()
 			if (VictimDmg)
 			{
 				float Applied = VictimDmg->ApplyDamage(Hit.BoneName, Weapon->BaseDamage, Weapon->ArmorPenetration, Enemy, Hit.Location);
-				UE_LOG(LogTemp, Warning, TEXT("AI HIT %s | bone: %s | dmg: %.1f | HP: %.1f"),
-					*Hit.GetActor()->GetName(), *Hit.BoneName.ToString(), Applied, VictimDmg->CurrentHealth);
+				
 			}
 			else
 			{
-				UE_LOG(LogTemp, Warning, TEXT("AI trace hit non-damageable: %s (use ECC_Pawn or check collision)"), *Hit.GetActor()->GetName());
+				
 			}
 		}
 	}
@@ -559,8 +535,7 @@ void AEnemyAIController::FindSquadMembers()
 		bIsLeader = true;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[AI Squad] %s found %d squad members | Leader=%d | Role=%d"),
-		*GetName(), SquadMembers.Num(), bIsLeader, (int32)TeamRole);
+	
 }
 
 void AEnemyAIController::ShareTargetWithSquad()
@@ -635,6 +610,5 @@ void AEnemyAIController::ApplyRoleModifiers()
 		break;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[AI Squad] Role modifiers applied | %s | Role=%d | Dist=%.0f | Acc=%.2f | React=%.2f"),
-		*GetName(), (int32)TeamRole, Enemy->OptimalCombatDistance, FireAccuracy, ReactionTime);
+	
 }

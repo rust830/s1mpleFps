@@ -223,12 +223,7 @@ void UGrenadeComponent::OnStartCooking()
 	{
 		
 		FVector Vel = ComputeThrowVelocity();
-		UE_LOG(LogTemp, Warning,
-			TEXT("[Grenade] OnStartCooking: bIsLowThrow=%d Angle=%.1f Speed=%.0f VelZ=%.0f (VelZ<0=向下抛)"),
-			(int32)bIsLowThrow,
-			bIsLowThrow ? Data->LowThrowAngle : Data->HighThrowAngle,
-			bIsLowThrow ? Data->LowThrowSpeed : Data->HighThrowSpeed,
-			Vel.Z);
+		
 	}
 	if (Data && Data->PinPullSound)
 		UGameplayStatics::PlaySound2D(GetWorld(), Data->PinPullSound);
@@ -312,7 +307,7 @@ void UGrenadeComponent::ServerThrowGrenade_Implementation(int32 GrenadeIndex, FV
 
 	FVector Location = ComputeThrowLocation(bLowThrow);
 
-	UE_LOG(LogTemp, Warning, TEXT("[Grenade] ServerSpawn: bLowThrow=%d LocZ=%.0f VelZ=%.0f"), (int32)bLowThrow, Location.Z, Velocity.Z);
+	
 
 	FActorSpawnParameters Params;
 	Params.Owner = OwnerCharacter;

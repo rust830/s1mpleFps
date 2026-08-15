@@ -70,8 +70,7 @@ void As1mpleFpsPvPGameMode::OnMatchEnd()
 		As1mpleFpsPlayerState* PvPPS = Cast<As1mpleFpsPlayerState>(PS);
 		if (PvPPS) {
 
-			UE_LOG(LogTemp, Warning, TEXT("[PvP] Match End �� %s: K=%d D=%d S=%d"),
-				*PvPPS->GetPlayerName(), PvPPS->Kills, PvPPS->Deaths, PvPPS->Scores);
+			
 		}
 	}
 }

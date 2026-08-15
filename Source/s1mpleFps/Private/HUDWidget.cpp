@@ -150,14 +150,14 @@ void UHUDWidget::TryBindPlayerState()
 		if (As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>()) {
 			GS->OnWarmUpTimeChanged.AddDynamic(this, &UHUDWidget::OnWarmUpReceived);
 			bWarmUpBound = true;
-			UE_LOG(LogTemp, Warning, TEXT("[HUD] OnWarmUpTimeChanged bound"));
+			
 		}
 	}
 	if (!bChatMessageBound) {
 		if (As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>()) {
 			GS->OnMessageReceived.AddDynamic(this, &UHUDWidget::OnChatMessageReceived);
 			bChatMessageBound = true;
-			UE_LOG(LogTemp, Warning, TEXT("[HUD] OnMessageReceived (chat) bound"));
+			
 		}
 	}
 	if (!bGrenadeBound)
@@ -190,7 +190,7 @@ void UHUDWidget::OnEntryTimerElapsed(UUserWidget* Entry)
 
 void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] OnMatchEndedReceived - Winner=%s"), *WinnerName);
+	
 	APlayerController* PC = GetOwningPlayer();
 	if (!PC)return;
 	if (As1mpleFpsCharacter* Character = Cast<As1mpleFpsCharacter>(PC->GetPawn())) {
@@ -218,7 +218,7 @@ void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill
 	FInputModeUIOnly InputMode;
 	InputMode.SetWidgetToFocus(TakeWidget());
 	PC->SetInputMode(InputMode);
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] Match End - Winner=%s, IsLocalWinner=%d"), *WinnerName, bIsWinner);
+	
 }
 
 void UHUDWidget::OnSuddenDeathReceived()
@@ -230,8 +230,7 @@ void UHUDWidget::OnSuddenDeathReceived()
 
 void UHUDWidget::OnWarmUpReceived(float WarmUpTimeRemaining)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] OnWarmUpReceived - value=%.0f, TextWidget=%s"),
-		WarmUpTimeRemaining, WarmUpCountdownText ? TEXT("OK") : TEXT("NULL"));
+	
 	if (!WarmUpCountdownText) return;
 
 	if (WarmUpTimeRemaining > 0.f)
@@ -346,8 +345,7 @@ void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 void UHUDWidget::OnChatMessageReceived(const FString& Sender, const FString& Message, bool bIsTeam)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[HUD Chat] Received: Sender=%s, Msg=%s, bIsTeam=%d, ChatBox=%s"),
-		*Sender, *Message, bIsTeam, *GetNameSafe(ChatMessageBox));
+	
 	if (!ChatMessageBox) return;
 	if (Sender.IsEmpty() || Message.IsEmpty()) return;
 
@@ -448,7 +446,7 @@ void UHUDWidget::PlayHitMarker(bool bIsEnemy)
 
 void UHUDWidget::UpdateHealthDisplay(float CurrentHealth, float MaxHealth)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] UpdateHealthDisplay: %.0f/%.0f, HealthBar=%s"), CurrentHealth, MaxHealth, HealthBar ? TEXT("OK") : TEXT("NULL"));
+	
 	float Percent = MaxHealth > 0.0f ? FMath::Clamp(CurrentHealth / MaxHealth, 0.0f, 1.0f) : 0.0f;
 
 	if (HealthBar)
@@ -471,8 +469,7 @@ void UHUDWidget::UpdateHealthDisplay(float CurrentHealth, float MaxHealth)
 
 void UHUDWidget::UpdateAmmoDisplay(int32 CurrentAmmo, int32 SpareAmmo)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] UpdateAmmoDisplay: AmmoText=%s, Cur=%d, Spare=%d"),
-		AmmoText ? TEXT("OK") : TEXT("NULL"), CurrentAmmo, SpareAmmo);
+	
 	if (AmmoText)
 		AmmoText->SetText(FText::Format(FText::FromString(TEXT("{0} / {1}")),
 			FText::AsNumber(CurrentAmmo), FText::AsNumber(SpareAmmo)));
@@ -485,11 +482,7 @@ void UHUDWidget::UpdateHealingDisplay(bool bIsHealing, float Duration)
 		bIsHealingActive = true;
 		HealingEndTime = GetWorld()->GetTimeSeconds() + Duration;
 		HealingTotalDuration = Duration;
-		UE_LOG(LogTemp, Warning, TEXT("[Heal] UpdateHealingDisplay(true): RingImage=%s, RingMat=%s, BaseMat=%s, Duration=%.1f"),
-			HealingRingImage ? TEXT("OK") : TEXT("NULL"),
-			HealingRingMaterial ? TEXT("OK") : TEXT("NULL"),
-			HealingRingBaseMaterial ? TEXT("OK") : TEXT("NULL"),
-			Duration);
+		
 		if (HealingRingImage)
 		{
 			HealingRingImage->SetVisibility(ESlateVisibility::Visible);
@@ -525,11 +518,7 @@ void UHUDWidget::UpdateEquipmentDisplay()
 	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(PC->GetPawn());
 	if (!Char) return;
 
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] UpdateEquipmentDisplay: WeaponNameText=%s, ArmorNameText=%s, CurrentWeapon=%s, WeaponData=%s, DamageComponent=%s"),
-		*GetNameSafe(WeaponNameText), *GetNameSafe(ArmorNameText),
-		*GetNameSafe(Char->CurrentWeapon),
-		Char->CurrentWeapon ? *GetNameSafe(Char->CurrentWeapon->WeaponData) : TEXT("null"),
-		*GetNameSafe(Char->DamageComponent));
+	
 
 	// Weapon name
 	if (WeaponNameText)
@@ -598,7 +587,7 @@ void UHUDWidget::BindToGrenadeComponent()
 	OnGrenadeInventoryChanged();
 
 	bGrenadeBound = true;
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] GrenadeComponent delegates bound"));
+	
 }
 
 void UHUDWidget::OnGrenadeEquippedChanged()
@@ -744,7 +733,7 @@ void UHUDWidget::OnKillPlayReceived(const FString& KillerName, const FString& Vi
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[HUD] KillPlayEntry missing SetKillInfo function"));
+		
 	}
 	KillPlayBox->AddChildToVerticalBox(Entry);
 	FTimerHandle FOnKillPlayHandle;

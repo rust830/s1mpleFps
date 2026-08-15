@@ -149,8 +149,7 @@ void UTP_WeaponComponent::ToggleAiming()
 
 void UTP_WeaponComponent::Equip()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Equip] Weapon=%s, Character=%s, IsLocallyControlled=%d, Role=%d"),
-		*GetName(), *GetNameSafe(Character), Character ? Character->IsLocallyControlled() : false, (int32)GetOwnerRole());
+	
 	bIsEquipped = true;
 	// 武器可见性规则：
 	// 1. 本地控制 + 第一人称 → 可见（Mesh1P 的 bOnlyOwnerSee 已限制仅持有者可见）
@@ -187,20 +186,19 @@ void UTP_WeaponComponent::Equip()
 
 	if (!Character || !Character->GetController())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Equip] ABORT: Character=%s, Controller=%s"), *GetNameSafe(Character), *GetNameSafe(Character ? Character->GetController() : nullptr));
+		
 		return;
 	}
 	if (!Character->IsLocallyControlled())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Equip] SKIP input bindings: not locally controlled, Role=%d"), (int32)GetOwnerRole());
+		
 		return;
 	}
 
 	APlayerController* PC = Cast<APlayerController>(Character->GetController());
 	if (!PC) return;
 
-	UE_LOG(LogTemp, Warning, TEXT("[Equip] Binding inputs: FireMappingContext=%p, FireAction=%p, ReloadAction=%p"),
-		EffectiveMappingContext, FireAction, ReloadAction);
+	
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
 		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
@@ -211,7 +209,7 @@ void UTP_WeaponComponent::Equip()
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("[Equip] FireMappingContext is NULL! Cannot add mapping context."));
+			
 		}
 	}
 
@@ -222,11 +220,11 @@ void UTP_WeaponComponent::Equip()
 		{
 			Input->BindAction(FireAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::StartFire);
 			Input->BindAction(FireAction, ETriggerEvent::Completed, this, &UTP_WeaponComponent::StopFire);
-			UE_LOG(LogTemp, Warning, TEXT("[Equip] FireAction bound successfully"));
+			
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("[Equip] FireAction is NULL! Cannot bind fire input."));
+			
 		}
 		if (ReloadAction)
 		{
@@ -346,8 +344,7 @@ void UTP_WeaponComponent::StartSingleFire()
 {
 	if (!Character || Character->CurrentWeapon != this)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED: Character=%s, CurrentWeapon=%s, this=%s"),
-			*GetNameSafe(Character), *GetNameSafe(Character ? Character->CurrentWeapon : nullptr), *GetName());
+		
 		return;
 	}
 
@@ -355,24 +352,21 @@ void UTP_WeaponComponent::StartSingleFire()
 
 	if (Character->bIsDead)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED: Character is dead, Weapon=%s"), *GetName());
+		
 		return;
 	}
 
 	if (!bCanFire())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED by bCanFire: CurrentAmmo=%d, bIsOnFireCooldown=%d, bIsReloading=%d"),
-			CurrentAmmo, (int32)bIsOnFireCooldown, (int32)bIsReloading);
+		
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] FIRE: Weapon=%s, HasAuthority=%d, NetMode=%d"),
-		*GetName(), Character->HasAuthority(), (int32)GetWorld()->GetNetMode());
+	
 
 	if (!WeaponData || !WeaponData->ProjectileClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[StartSingleFire] BLOCKED: WeaponData=%s, ProjectileClass=%s"),
-			*GetNameSafe(WeaponData), *GetNameSafe(WeaponData ? WeaponData->ProjectileClass : nullptr));
+		
 		return;
 	}
 
@@ -476,18 +470,17 @@ void UTP_WeaponComponent::ServerFire_Implementation(FVector SpawnLocation, FRota
 {
 	if (!WeaponData)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] BLOCKED: WeaponData is NULL, Weapon=%s"), *GetName());
+		
 		return;
 	}
 	if (ReplicatedCurrentAmmo <= 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] BLOCKED: ReplicatedCurrentAmmo=%d (no ammo on server), Weapon=%s, Character=%s"),
-			ReplicatedCurrentAmmo, *GetName(), *GetNameSafe(Character));
+		
 		return;
 	}
 	if (!Character)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] BLOCKED: Character is NULL, Weapon=%s"), *GetName());
+		
 		return;
 	}
 	ReplicatedCurrentAmmo -= 1;
@@ -517,18 +510,17 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 {
 	if (!WeaponData)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[PerformFire] BLOCKED: WeaponData is NULL, Weapon=%s"), *GetName());
+		
 		return;
 	}
 	if (!WeaponData->ProjectileClass)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[PerformFire] BLOCKED: ProjectileClass is NULL on WeaponData=%s, Weapon=%s"),
-			*WeaponData->GetName(), *GetName());
+		
 		return;
 	}
 	if (!Character)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[PerformFire] BLOCKED: Character is NULL, Weapon=%s"), *GetName());
+		
 		return;
 	}
 	UWorld* const World = GetWorld();
@@ -544,7 +536,7 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[PerformFire] FAILED to spawn projectile: Class=%s"), *WeaponData->ProjectileClass->GetName());
+		
 	}
 	UAISense_Hearing::ReportNoiseEvent(
 		GetWorld(),
@@ -558,18 +550,17 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 
 void UTP_WeaponComponent::StartFire()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[StartFire] Weapon=%s, Character=%s, CurrentWeapon=%s, bIsReloading=%d, CurrentAmmo=%d"),
-		*GetName(), *GetNameSafe(Character), *GetNameSafe(Character ? Character->CurrentWeapon : nullptr), (int32)bIsReloading, CurrentAmmo);
+	
 	if (!Character || Character->CurrentWeapon != this)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[StartFire] BLOCKED: Character or CurrentWeapon mismatch"));
+		
 		return;
 	}
 	if (!Character->GetController()) return;
 	if (bIsReloading) return;
 	if (CurrentAmmo <= 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[StartFire] BLOCKED: No ammo"));
+		
 		return;
 	}
 

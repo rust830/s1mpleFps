@@ -80,7 +80,7 @@ As1mpleFpsCharacter::As1mpleFpsCharacter()
 
 	// 隐藏第三人称模型，只显示第一人称手臂
 	GetMesh()->SetOwnerNoSee(true);
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] Constructor: GetMesh()->SetOwnerNoSee(true), Mesh1P->SetOnlyOwnerSee=%d, Role=%d"), Mesh1P->bOnlyOwnerSee, (int32)GetLocalRole());
+	
 
 	DamageComponent = CreateDefaultSubobject<UDamageComponent>(TEXT("DamageComponent"));
 	DamageComponent->OnDeath.AddDynamic(this, &As1mpleFpsCharacter::Die);
@@ -110,20 +110,19 @@ As1mpleFpsCharacter::As1mpleFpsCharacter()
 
 void As1mpleFpsCharacter::Die()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] Die() ENTER: Name=%s, Role=%d, bIsDead=%d, bIsDeadReplicated=%d, Health=%.0f"),
-		*GetName(), (int32)GetLocalRole(), bIsDead, bIsDeadReplicated, DamageComponent->CurrentHealth);
+	
 
 	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
 	if (GS && GS->bIsWarmUp) {
 		// 热身阶段不掉血：将血量恢复到满，防止热身结束后永久无敌
 		DamageComponent->CurrentHealth = DamageComponent->MaxHealth;
 		ReplicatedHealth = DamageComponent->MaxHealth;
-		UE_LOG(LogTemp, Warning, TEXT("[DIAG] Die() BLOCKED by warmup, health reset to %.0f"), ReplicatedHealth);
+		
 		return;
 	}
 
 	if (bIsDead) {
-		UE_LOG(LogTemp, Warning, TEXT("[DIAG] Die() BLOCKED by bIsDead already true"));
+		
 		return;
 	}
 	bIsDead = true;
@@ -327,7 +326,7 @@ void As1mpleFpsCharacter::RespawnVisuals()
 			// 确保复活后控制器仍然 Possess 当前角色
 			if (PC->GetPawn() != this)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[RespawnVisuals] Re-possessing: Pawn=%s, this=%s"), *GetNameSafe(PC->GetPawn()), *GetName());
+				
 				PC->Possess(this);
 			}
 			PC->SetInputMode(FInputModeGameOnly());
@@ -347,8 +346,7 @@ void As1mpleFpsCharacter::HideDeathWidget()
 
 void As1mpleFpsCharacter::OnHealthDamaged(float Damage, AActor* DamageInstigator)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] OnHealthDamaged: Name=%s, Damage=%.0f, CurrentHealth=%.0f, MaxHealth=%.0f, Role=%d"),
-		*GetName(), Damage, DamageComponent->CurrentHealth, DamageComponent->MaxHealth, (int32)GetLocalRole());
+	
 	ReplicatedHealth = DamageComponent->CurrentHealth;
 	OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent->MaxHealth);
 
@@ -386,11 +384,10 @@ void As1mpleFpsCharacter::BeginPlay()
 	if (!GrenadeComponent)
 	{
 		GrenadeComponent = FindComponentByClass<UGrenadeComponent>();
-		UE_LOG(LogTemp, Warning, TEXT("[DIAG] BeginPlay: GrenadeComponent was NULL, FindComponentByClass=%s"), *GetNameSafe(GrenadeComponent));
+		
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] BeginPlay: Name=%s, Role=%d, OwnerNoSee=%d, OnlyOwnerSee=%d, ReplicatedHealth=%.0f"),
-		*GetName(), (int32)GetLocalRole(), GetMesh()->bOwnerNoSee, Mesh1P->bOnlyOwnerSee, ReplicatedHealth);
+	
 }
 
 void As1mpleFpsCharacter::Tick(float DeltaTime)
@@ -441,18 +438,13 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 				this, &As1mpleFpsCharacter::OnThrowGrenade);
 		}
 		// 手雷相关输入 — 直接绑到 GrenadeComponent，Character 不做转发
-		UE_LOG(LogTemp, Warning, TEXT("[GRENADE-DEBUG] SetupPlayerInputComponent: entering grenade bindings, GC=%s"), *GetNameSafe(GrenadeComponent));
+		
 		if (!GrenadeComponent)
 			GrenadeComponent = FindComponentByClass<UGrenadeComponent>();
-		UE_LOG(LogTemp, Warning, TEXT("[GRENADE-DEBUG] After FindComponentByClass: GC=%s"), *GetNameSafe(GrenadeComponent));
+		
 		if (GrenadeComponent)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[GRENADE-DEBUG] HighThrow=%s LowThrow=%s Next=%s Prev=%s IMC=%s"),
-				*GetNameSafe(GrenadeComponent->HighThrowAction),
-				*GetNameSafe(GrenadeComponent->LowThrowAction),
-				*GetNameSafe(GrenadeComponent->NextGrenadeAction),
-				*GetNameSafe(GrenadeComponent->PrevGrenadeAction),
-				*GetNameSafe(GrenadeComponent->IMC_Grenade));
+			
 
 			if (GrenadeComponent->HighThrowAction)
 			{
@@ -482,7 +474,7 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	}
 	else
 	{
-		UE_LOG(LogTemplateCharacter, Error, TEXT("'%s' Failed to find an Enhanced Input Component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
+		
 	}
 }
 
@@ -652,7 +644,7 @@ void As1mpleFpsCharacter::PauseGame()
 		PC->TogglePause();
 	}
 	else {
-		UE_LOG(LogTemplateCharacter, Error, TEXT("Cast to As1mpleFpsPlayerController FAILED! Controller is: %s"), *GetNameSafe(GetController()));
+		
 	}
 }
 
@@ -668,8 +660,7 @@ void As1mpleFpsCharacter::Interact()
 
 	bool bHasOverlap = GetWorld()->OverlapMultiByChannel(Overlap, CameraLocation + CameraForward * 150.f, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(200.f), Params);
 
-	UE_LOG(LogTemp, Warning, TEXT("[PickUp] Interact: Name=%s, NetMode=%d, OverlapCount=%d, InventoryNum=%d"),
-		*GetName(), (int32)GetWorld()->GetNetMode(), Overlap.Num(), WeaponInventory.Num());
+	
 
 	for (const auto& Hit : Overlap) {
 		AActor* HitActor = Hit.GetActor();
@@ -678,36 +669,36 @@ void As1mpleFpsCharacter::Interact()
 
 		UTP_PickUpComponent *PickUp = HitActor->FindComponentByClass<UTP_PickUpComponent>();
 		if (!PickUp) {
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] SKIP %s: no PickUp component"), *GetNameSafe(HitActor));
+			
 			continue;
 		}
 
 		if (PickUp->bIsAlreadyPickedUp) {
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] SKIP %s: bIsAlreadyPickedUp=true"), *GetNameSafe(HitActor));
+			
 			continue;
 		}
 
 		float Distance = FVector::Dist(CameraLocation, HitActor->GetActorLocation());
 		if (Distance > PickUpDistance) {
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] SKIP %s: distance %.0f > %.0f"), *GetNameSafe(HitActor), Distance, PickUpDistance);
+			
 			continue;
 		}
 
 		FVector ToTarget = (HitActor->GetActorLocation() - CameraLocation).GetSafeNormal();
 		float Dot = FVector::DotProduct(CameraForward, ToTarget);
 		if (Dot < 0.7f) {
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] SKIP %s: dot %.2f < 0.7"), *GetNameSafe(HitActor), Dot);
+			
 			continue;
 		}
 
 
 		UTP_WeaponComponent* Weapon = HitActor->FindComponentByClass<UTP_WeaponComponent>();
 		if (!Weapon) {
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] SKIP %s: no Weapon component"), *GetNameSafe(HitActor));
+			
 			continue;
 		}
 		if (WeaponInventory.Num() >= MaxWeaponSlots) {
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] SKIP %s: inventory full (%d >= %d)"), *GetNameSafe(HitActor), WeaponInventory.Num(), MaxWeaponSlots);
+			
 			break;
 		}
 
@@ -717,28 +708,28 @@ void As1mpleFpsCharacter::Interact()
 			// Execute pickup through the shared implementation so that
 			// bIsAlreadyPickedUp, ClientSyncWeaponAmmo, FlushNetDormancy,
 			// and ForceNetUpdate all fire correctly.
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] Server direct pickup: HitActor=%s"), *GetNameSafe(HitActor));
+			
 			ServerPickUpWeapon_Implementation(HitActor);
 		}
 		else
 		{
 			// Pure client: RPC to server + optimistic local pickup for responsiveness.
 			// If server rejects, ClientUndoPickUp handles rollback.
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] Client RPC ServerPickUpWeapon: HitActor=%s"), *GetNameSafe(HitActor));
+			
 			ServerPickUpWeapon(HitActor);
 
 			// Optimistic local pickup (server will validate)
 			if (!Weapon->AttachWeapon(this)) {
-				UE_LOG(LogTemp, Warning, TEXT("[PickUp] FAILED AttachWeapon: Weapon=%s"), *GetNameSafe(Weapon));
+				
 				break;
 			}
 			WeaponInventory.Add(Weapon);
 			SwitchWeapon(WeaponInventory.Num() - 1);
 			PickUp->OnPickUp.Broadcast(this);
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] Setting bIsAlreadyPickedUp=true on %s (NetMode=%d)"), *GetNameSafe(HitActor), (int32)GetWorld()->GetNetMode());
+			
 			PickUp->bIsAlreadyPickedUp = true;
 			HitActor->SetActorEnableCollision(false);
-			UE_LOG(LogTemp, Warning, TEXT("[PickUp] Local pickup OK: Weapon=%s, Actor=%s, Inventory.Num=%d, Role=%d"), *GetNameSafe(Weapon), *GetNameSafe(HitActor), WeaponInventory.Num(), (int32)GetLocalRole());
+			
 		}
 		break;
 	}
@@ -836,9 +827,7 @@ void As1mpleFpsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 void As1mpleFpsCharacter::OnRep_Health()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] OnRep_Health: Name=%s, ReplicatedHealth=%.0f, MaxHealth=%.0f, Role=%d, DamageComponent=%s, OnHealthChanged bound=%d"),
-		*GetName(), ReplicatedHealth, DamageComponent ? DamageComponent->MaxHealth : -1.0f, (int32)GetLocalRole(),
-		*GetNameSafe(DamageComponent), OnHealthChanged.IsBound());
+	
 	if (DamageComponent)
 		DamageComponent->CurrentHealth = ReplicatedHealth;
 	OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent ? DamageComponent->MaxHealth : 100.0f);
@@ -861,8 +850,7 @@ void As1mpleFpsCharacter::OnRep_Health()
 
 void As1mpleFpsCharacter::OnRep_bIsDead()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] OnRep_bIsDead: Name=%s, bIsDeadReplicated=%d, bIsDead=%d, Role=%d"),
-		*GetName(), bIsDeadReplicated, bIsDead, (int32)GetLocalRole());
+	
 	if (bIsDeadReplicated && !bIsDead)
 	{
 		Die();
@@ -897,8 +885,7 @@ void As1mpleFpsCharacter::OnRep_bIsDead()
 
 void As1mpleFpsCharacter::OnRep_CurrentWeapon()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[OnRep_CurrentWeapon] Name=%s, NewWeapon=%s, PrevWeapon=%s, Role=%d, IsLocallyControlled=%d"),
-		*GetName(), *GetNameSafe(CurrentWeapon), *GetNameSafe(PreviousClientWeapon), (int32)GetLocalRole(), IsLocallyControlled());
+	
 	if (IsLocallyControlled())
 	{
 		// 本地玩家：武器可能在客户端没 Equip（纯客户端只发 RPC），OnRep 时补 Equip
@@ -932,7 +919,7 @@ void As1mpleFpsCharacter::OnRep_CurrentWeapon()
 			PreviousClientWeapon->UnEquip();
 		if (CurrentWeapon)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[OnRep_CurrentWeapon] Calling SetOwningCharacter + Equip on %s"), *GetNameSafe(CurrentWeapon));
+			
 			CurrentWeapon->SetOwningCharacter(this);
 			CurrentWeapon->Equip();
 		}
@@ -942,8 +929,7 @@ void As1mpleFpsCharacter::OnRep_CurrentWeapon()
 
 void As1mpleFpsCharacter::OnRep_WeaponInventory()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[OnRep_WeaponInventory] Name=%s, Count=%d, Role=%d"),
-		*GetName(), WeaponInventory.Num(), (int32)GetLocalRole());
+	
 	if (IsLocallyControlled())
 	{
 		// Handle pending purchase (ClientPurchaseComplete arrived before replication)
@@ -951,7 +937,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 		{
 			if (WeaponInventory.IsValidIndex(PendingPurchaseIndex) && WeaponInventory[PendingPurchaseIndex])
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[OnRep_WeaponInventory] Processing pending purchase at index %d"), PendingPurchaseIndex);
+				
 				UTP_WeaponComponent* Weapon = WeaponInventory[PendingPurchaseIndex];
 				Weapon->SetOwningCharacter(this);
 				CurrentWeapon = nullptr;
@@ -962,7 +948,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 			else
 			{
 				// 动态创建的组件可能尚未复制到达，延迟重试
-				UE_LOG(LogTemp, Warning, TEXT("[OnRep_WeaponInventory] Pending purchase at index %d, weapon not yet replicated, retrying..."), PendingPurchaseIndex);
+				
 				if (PurchaseRetryCount < 10)
 				{
 					PurchaseRetryCount++;
@@ -972,7 +958,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 				}
 				else
 				{
-					UE_LOG(LogTemp, Error, TEXT("[OnRep_WeaponInventory] Retry limit reached, giving up on purchase"));
+					
 					PendingPurchaseIndex = -1;
 					PurchaseRetryCount = 0;
 				}
@@ -1033,14 +1019,14 @@ void As1mpleFpsCharacter::ServerRequestRespawn_Implementation()
 
 void As1mpleFpsCharacter::ServerPickUpWeapon_Implementation(AActor* HitActor)
 {
-	UE_LOG(LogTemplateCharacter, Warning, TEXT("[PickUp] ServerPickUpWeapon called, HitActor=%s, Role=%d"), *GetNameSafe(HitActor), (int32)GetLocalRole());
+	
 	if (!HitActor) return;
 
 	// Guard against double-pickup (race condition between two players)
 	UTP_PickUpComponent* PickUp = HitActor->FindComponentByClass<UTP_PickUpComponent>();
 	if (PickUp && PickUp->bIsAlreadyPickedUp)
 	{
-		UE_LOG(LogTemplateCharacter, Warning, TEXT("[PickUp] ServerPickUpWeapon BLOCKED: already picked up"));
+		
 		ClientUndoPickUp(HitActor);
 		return;
 	}
@@ -1081,17 +1067,16 @@ void As1mpleFpsCharacter::ServerPickUpWeapon_Implementation(AActor* HitActor)
 	HitActor->SetActorEnableCollision(false);
 	HitActor->FlushNetDormancy();
 	HitActor->ForceNetUpdate();
-	UE_LOG(LogTemplateCharacter, Warning, TEXT("[PickUp] Calling MulticastOnPickUp: Char=%s, HitActor=%s, HasAuthority=%d, NetMode=%d"),
-		*GetName(), *GetNameSafe(HitActor), HasAuthority(), (int32)GetWorld()->GetNetMode());
+	
 	MulticastOnPickUp(HitActor);
 	ClientSyncWeaponAmmo(WeaponIndex, PickupWeapon->CurrentAmmo, PickupWeapon->SpareAmmo);
 
-	UE_LOG(LogTemplateCharacter, Warning, TEXT("[PickUp] Server pickup OK, Weapon=%s, Inventory.Num=%d"), *GetNameSafe(PickupWeapon), WeaponInventory.Num());
+	
 }
 
 void As1mpleFpsCharacter::ClientUndoPickUp_Implementation(AActor* HitActor)
 {
-	UE_LOG(LogTemplateCharacter, Warning, TEXT("[PickUp] ClientUndoPickUp: HitActor=%s, Role=%d"), *GetNameSafe(HitActor), (int32)GetLocalRole());
+	
 	if (!HitActor) return;
 
 	UTP_WeaponComponent* Weapon = HitActor->FindComponentByClass<UTP_WeaponComponent>();
@@ -1122,24 +1107,22 @@ void As1mpleFpsCharacter::ClientUndoPickUp_Implementation(AActor* HitActor)
 
 void As1mpleFpsCharacter::MulticastOnPickUp_Implementation(AActor* HitActor)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[MulticastOnPickUp] ENTER: Char=%s, HitActor=%s, IsLocallyControlled=%d, HasAuthority=%d, NetMode=%d"),
-		*GetName(), *GetNameSafe(HitActor), IsLocallyControlled(), HasAuthority(), (int32)GetWorld()->GetNetMode());
+	
 
 	if (IsLocallyControlled())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MulticastOnPickUp] SKIP: locally controlled"));
+		
 		return;
 	}
 	if (HasAuthority())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MulticastOnPickUp] SKIP: has authority"));
+		
 		return;
 	}
 	if (!HitActor) return;
 
 	UTP_PickUpComponent* PickUp = HitActor->FindComponentByClass<UTP_PickUpComponent>();
-	UE_LOG(LogTemp, Warning, TEXT("[MulticastOnPickUp] Processing: PickUp=%s, bIsAlreadyPickedUp=%d"),
-		*GetNameSafe(PickUp), PickUp ? PickUp->bIsAlreadyPickedUp : false);
+	
 
 	if (PickUp)
 	{
@@ -1157,16 +1140,13 @@ void As1mpleFpsCharacter::MulticastOnPickUp_Implementation(AActor* HitActor)
 	if (Weapon)
 	{
 		USceneComponent* OldParent = Weapon->GetAttachParent();
-		UE_LOG(LogTemp, Warning, TEXT("[MulticastOnPickUp] Weapon attach: Weapon=%s, OldParentOwner=%s, Mesh1P=%s"),
-			*Weapon->GetName(),
-			*GetNameSafe(OldParent ? OldParent->GetOwner() : nullptr),
-			*GetNameSafe(GetMesh1P()));
+		
 
 		Weapon->AttachToComponent(GetMesh1P(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), FName(TEXT("GripPoint")));
 		Weapon->SetOnlyOwnerSee(true);
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[MulticastOnPickUp] DONE: HitActor=%s"), *GetNameSafe(HitActor));
+	
 }
 
 void As1mpleFpsCharacter::ServerSwitchWeapon_Implementation(int32 Index)
@@ -1218,12 +1198,11 @@ void As1mpleFpsCharacter::ServerFireWeapon_Implementation(int32 InWeaponIndex, F
 	if (!Weapon)
 	{
 		Weapon = CurrentWeapon;
-		UE_LOG(LogTemp, Warning, TEXT("[ServerFireWeapon] Fallback to CurrentWeapon: InWeaponIndex=%d is invalid or null, CurrentWeapon=%s"),
-			InWeaponIndex, *GetNameSafe(CurrentWeapon));
+		
 	}
 	if (!Weapon)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ServerFireWeapon] BLOCKED: no weapon available, InWeaponIndex=%d"), InWeaponIndex);
+		
 		return;
 	}
 	Weapon->ServerFire(SpawnLocation, SpawnRotation);
@@ -1260,8 +1239,7 @@ void As1mpleFpsCharacter::ServerReloadWeapon_Implementation(int32 InWeaponIndex)
 	Weapon->SpareAmmo = Weapon->ReplicatedSpareAmmo;
 	Weapon->OnAmmoChanged.Broadcast(Weapon->CurrentAmmo, Weapon->SpareAmmo);
 
-	UE_LOG(LogTemp, Warning, TEXT("[ServerReloadWeapon] Instant reload: Weapon=%s, Ammo=%d/%d, Spare=%d"),
-		*Weapon->GetName(), Weapon->ReplicatedCurrentAmmo, Weapon->WeaponData->MaxProjectile, Weapon->ReplicatedSpareAmmo);
+	
 }
 
 // ===== 购买系统 =====
@@ -1464,8 +1442,7 @@ void As1mpleFpsCharacter::CancelHealing()
 		}
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Heal] CancelHealing: Name=%s, Role=%d, SavedWalkSpeed=%.0f"),
-		*GetName(), (int32)GetLocalRole(), SavedWalkSpeed);
+	
 }
 
 void As1mpleFpsCharacter::ServerCancelHealing_Implementation()

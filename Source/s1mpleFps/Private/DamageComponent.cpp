@@ -19,8 +19,7 @@ void UDamageComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	CurrentHealth = MaxHealth;
-	UE_LOG(LogTemp, Warning, TEXT("[DIAG] DamageComponent BeginPlay: Owner=%s, CurrentHealth=%.0f, MaxHealth=%.0f, Role=%d"),
-		*GetNameSafe(GetOwner()), CurrentHealth, MaxHealth, (int32)GetOwnerRole());
+	
 }
 
 

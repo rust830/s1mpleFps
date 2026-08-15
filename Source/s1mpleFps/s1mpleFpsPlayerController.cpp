@@ -27,7 +27,7 @@ void As1mpleFpsPlayerController::BeginPlay()
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("As1mpleFpsPlayerController::BeginPlay - InputMappingContext is NULL!"));
+			
 		}
 	}
 
@@ -44,7 +44,7 @@ void As1mpleFpsPlayerController::BeginPlay()
 		// 菜单地图：创建主菜单 UI（服务端和客户端各自执行）
 		if (MainMenuWidgetClass)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[PC] Creating MainMenuWidget: %s"), *MainMenuWidgetClass->GetName());
+			
 			UUserWidget* Menu = CreateWidget<UUserWidget>(this, MainMenuWidgetClass);
 			if (Menu)
 			{
@@ -59,23 +59,23 @@ void As1mpleFpsPlayerController::BeginPlay()
 	else if (HUDWidgetClass)
 	{
 		// 战斗地图：创建 HUD
-		UE_LOG(LogTemp, Warning, TEXT("[PC] Creating HUDWidget, HUDWidgetClass=%s"), *HUDWidgetClass->GetName());
+		
 		HUDWidget = CreateWidget<UHUDWidget>(this, HUDWidgetClass);
 		if (HUDWidget)
 		{
 			HUDWidget->AddToViewport();
-			UE_LOG(LogTemp, Warning, TEXT("[PC] HUDWidget added to viewport"));
+			
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("[PC] CreateWidget returned NULL!"));
+			
 		}
 		SetInputMode(FInputModeGameOnly());
 		bShowMouseCursor = false;
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[PC] HUDWidgetClass is NULL! Did you assign it in BP_FirstPersonPlayerController?"));
+		
 	}
 }
 
@@ -110,10 +110,10 @@ void As1mpleFpsPlayerController::OpenChatBox(bool bIsTeam)
 	if (bChatOpen)return;
 	bChatOpen = true;
 	bCurrentChatIsTeam = bIsTeam;
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] OpenChatBox: bIsTeam=%d, ChatWidget=%s"), bIsTeam, *GetNameSafe(ChatWidget));
+	
 	if (ChatClass && !ChatWidget) {
 		ChatWidget = CreateWidget<UChatWidget>(this, ChatClass);
-		UE_LOG(LogTemp, Warning, TEXT("[Chat] Created ChatWidget: %s"), *GetNameSafe(ChatWidget));
+		
 	}
 	if (ChatWidget) {
 		ChatWidget->AddToViewport();
@@ -126,7 +126,7 @@ void As1mpleFpsPlayerController::OpenChatBox(bool bIsTeam)
 
 void As1mpleFpsPlayerController::CloseChatBox()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] CloseChatBox: bChatOpen=%d, ChatWidget=%s"), bChatOpen, *GetNameSafe(ChatWidget));
+	
 	bChatOpen = false;
 	if (ChatWidget) {
 		ChatWidget->RemoveFromParent();
@@ -139,7 +139,7 @@ void As1mpleFpsPlayerController::CloseChatBox()
 
 void As1mpleFpsPlayerController::OnChatTextCommitted(const FText& Text, ETextCommit::Type CommitMethod)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] OnChatTextCommitted: Text='%s', CommitMethod=%d"), *Text.ToString(), (int32)CommitMethod);
+	
 	if (CommitMethod == ETextCommit::Type::OnEnter)
 	{
 		FString Message = Text.ToString();
@@ -216,7 +216,7 @@ void As1mpleFpsPlayerController::ServerPurchaseItem_Implementation(int32 ItemInd
 		UGrenadeComponent* GC = PC->FindComponentByClass<UGrenadeComponent>();
 		if (!GC)
 		{
-			UE_LOG(LogTemp, Error, TEXT("[Purchase] FindComponentByClass<UGrenadeComponent> returned NULL! Char=%s"), *GetNameSafe(PC));
+			
 			return;
 		}
 		GC->AddGrenade(Item.GrenadeData, Item.GrenadeAmount);
@@ -229,10 +229,7 @@ void As1mpleFpsPlayerController::ClientPurchaseComplete_Implementation(int32 Wea
 	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(GetPawn());
 	if (!Char) return;
 
-	UE_LOG(LogTemp, Warning, TEXT("[ClientPurchaseComplete] SlotIndex=%d, InventoryNum=%d, ValidIndex=%d, Weapon=%s"),
-		WeaponSlotIndex, Char->WeaponInventory.Num(),
-		Char->WeaponInventory.IsValidIndex(WeaponSlotIndex),
-		*GetNameSafe(Char->WeaponInventory.IsValidIndex(WeaponSlotIndex) ? Char->WeaponInventory[WeaponSlotIndex] : nullptr));
+	
 
 	if (Char->WeaponInventory.IsValidIndex(WeaponSlotIndex) && Char->WeaponInventory[WeaponSlotIndex])
 	{
@@ -243,7 +240,7 @@ void As1mpleFpsPlayerController::ClientPurchaseComplete_Implementation(int32 Wea
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ClientPurchaseComplete] Inventory not ready, setting PendingPurchaseIndex=%d"), WeaponSlotIndex);
+		
 		Char->PendingPurchaseIndex = WeaponSlotIndex;
 	}
 }
@@ -280,7 +277,7 @@ void As1mpleFpsPlayerController::ToggleScoreboard()
 
 void As1mpleFpsPlayerController::SentMessageToServer(const FString& Message, bool bIsTeam)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] SentMessageToServer: Message='%s', bIsTeam=%d"), *Message, bIsTeam);
+	
 	if (Message.IsEmpty())return;
 	CloseChatBox();
 	ServerReceivedMessage(Message, bIsTeam);
@@ -288,13 +285,13 @@ void As1mpleFpsPlayerController::SentMessageToServer(const FString& Message, boo
 
 void As1mpleFpsPlayerController::ServerReceivedMessage_Implementation(const FString& Message, bool bIsTeam)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] ServerReceivedMessage: Msg='%s', bIsTeam=%d, Role=%d"), *Message, bIsTeam, (int32)GetLocalRole());
+	
 	if (Message.IsEmpty() || Message.Len() > 200) return;
 	const FString Sender = GetPlayerState<APlayerState>() ? GetPlayerState<APlayerState>()->GetPlayerName() : TEXT("Unknown");
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] ServerReceivedMessage Sender=%s"), *Sender);
+	
 	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
-	if (!GS) { UE_LOG(LogTemp, Error, TEXT("[Chat] ServerReceivedMessage: GameState is NULL!")); return; }
-	UE_LOG(LogTemp, Warning, TEXT("[Chat] ServerReceivedMessage calling MulticastReceivedChatMessage"));
+	if (!GS) {  return; }
+	
 	GS->MulticastReceivedChatMessage(Sender, Message, bIsTeam);
 }
 
@@ -331,9 +328,7 @@ void As1mpleFpsPlayerController::OnPossess(APawn* InPawn)
 
 	if (As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(InPawn))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[PC] OnPossess: Char=%s, HUDWidget=%s, CurrentWeapon=%s, ReplicatedHealth=%.0f, MaxHealth=%.0f"),
-			*GetNameSafe(Char), *GetNameSafe(HUDWidget), *GetNameSafe(Char->CurrentWeapon),
-			Char->ReplicatedHealth, Char->DamageComponent ? Char->DamageComponent->MaxHealth : -1.0f);
+		
 
 		Char->OnHealthChanged.AddDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
 		Char->OnHealingStateChanged.AddDynamic(this, &As1mpleFpsPlayerController::OnPawnHealingStateChanged);
@@ -346,12 +341,12 @@ void As1mpleFpsPlayerController::OnPossess(APawn* InPawn)
 		{
 			if (Char->CurrentWeapon)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[PC] OnPossess: Binding HUD to CurrentWeapon=%s"), *GetNameSafe(Char->CurrentWeapon));
+				
 				HUDWidget->BindToWeapon(Char->CurrentWeapon);
 			}
 			else
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[PC] OnPossess: CurrentWeapon is NULL, calling UpdateEquipmentDisplay"));
+				
 				HUDWidget->UpdateEquipmentDisplay();
 			}
 		}
@@ -372,8 +367,7 @@ void As1mpleFpsPlayerController::OnUnPossess()
 
 void As1mpleFpsPlayerController::OnPawnHealthChanged(float Health, float MaxHealth)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] OnPawnHealthChanged: Health=%.0f/%.0f, HUDWidget=%s, Role=%d, IsLocal=%d"),
-		Health, MaxHealth, *GetNameSafe(HUDWidget), (int32)GetLocalRole(), IsLocalController());
+	
 	if (HUDWidget)
 	{
 		HUDWidget->UpdateHealthDisplay(Health, MaxHealth);
@@ -393,7 +387,7 @@ void As1mpleFpsPlayerController::OnPawnHealingStateChanged()
 void As1mpleFpsPlayerController::TogglePause()
 {
 	if (!PauseMenuClass) {
-		UE_LOG(LogTemp, Error, TEXT("PauseMenuClass is NULL! Did you assign WBP_PauseMenu in the PlayerController blueprint?"));
+		
 		return;
 	}
 	if (IsPaused()) {
@@ -418,7 +412,7 @@ void As1mpleFpsPlayerController::TogglePause()
 			PauseMenuWidget->AddToViewport();
 		}
 		else {
-			UE_LOG(LogTemp, Error, TEXT("CreateWidget FAILED!"));
+			
 		}
 
 	}

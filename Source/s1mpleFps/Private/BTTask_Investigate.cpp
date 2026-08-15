@@ -16,12 +16,12 @@ UBTTask_Investigate::UBTTask_Investigate()
 
 EBTNodeResult::Type UBTTask_Investigate::ExecuteTask(UBehaviorTreeComponent& OwnerComponent, uint8* NodeMemory)
 {    
-	UE_LOG(LogTemp, Warning, TEXT("BTTask_Investigate: ExecuteTask called"));
+	
 
 	AEnemyAIController* AI = Cast<AEnemyAIController>(OwnerComponent.GetAIOwner());
-	if (!AI) { UE_LOG(LogTemp, Warning, TEXT("BTTask_Investigate: AI cast failed")); return EBTNodeResult::Failed; }
+	if (!AI) {  return EBTNodeResult::Failed; }
 	UBlackboardComponent* BB = OwnerComponent.GetBlackboardComponent();
-	if (!BB) { UE_LOG(LogTemp, Warning, TEXT("BTTask_Investigate: BB is null")); return EBTNodeResult::Failed; }
+	if (!BB) {  return EBTNodeResult::Failed; }
 	FVector SearchLocation = FVector::ZeroVector;
 	bool bHasTarget = false;
 	FVector LastSeen = BB->GetValueAsVector("LastSeenLocation");
@@ -41,7 +41,7 @@ EBTNodeResult::Type UBTTask_Investigate::ExecuteTask(UBehaviorTreeComponent& Own
 	}
 	if (!bHasTarget) return EBTNodeResult::Failed;
 
-	UE_LOG(LogTemp, Warning, TEXT("BTTask_Investigate: Moving to %s"), *SearchLocation.ToString());
+	
 
 	AI->MoveToLocation(SearchLocation, RadiusAccept, true);
 
@@ -49,7 +49,7 @@ EBTNodeResult::Type UBTTask_Investigate::ExecuteTask(UBehaviorTreeComponent& Own
 	Memory->bResearchLoaction = false;
 	Memory->SerachTimeRemaining = SerachDuration;
 
-	UE_LOG(LogTemp, Warning, TEXT("BTTask_Investigate: MoveTo started, returning InProgress"));
+	
 	return EBTNodeResult::InProgress;
 }
 

@@ -8,12 +8,12 @@
 EBTNodeResult::Type UBTTask_Fire::ExecuteTask(UBehaviorTreeComponent& OwnerComponent, uint8* NodeMemory)
 {   
 	AAIController* AI = Cast<AAIController>(OwnerComponent.GetOwner());
-	if (!AI) { UE_LOG(LogTemp, Error, TEXT("BTTask_Fire: Owner not AIController")); return EBTNodeResult::Failed; }
+	if (!AI) {  return EBTNodeResult::Failed; }
 	AEnemyAIController* Enemy = Cast<AEnemyAIController>(AI);
-	if (!Enemy) { UE_LOG(LogTemp, Error, TEXT("BTTask_Fire: Cast to AEnemyAIController failed")); return EBTNodeResult::Failed; }
+	if (!Enemy) {  return EBTNodeResult::Failed; }
 	UBlackboardComponent* BB = OwnerComponent.GetBlackboardComponent();
 	AActor* Target = Cast<AActor>(BB ? BB->GetValueAsObject("TargetActor") : nullptr);
-	if (!Target) { UE_LOG(LogTemp, Error, TEXT("BTTask_Fire: No TargetActor in BB")); return EBTNodeResult::Failed; }
+	if (!Target) {  return EBTNodeResult::Failed; }
 	if (!BB->GetValueAsBool("HasLineOfSight")) return EBTNodeResult::Failed;
 	FBTFireTaskMemory* Memory = reinterpret_cast<FBTFireTaskMemory*>(NodeMemory);
 	Memory->TimeRemaining = BurstTime;
