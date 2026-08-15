@@ -67,9 +67,13 @@ void As1mpleFpsGameMode::ScheduleEnemyRespawn(TSubclassOf<AEnemyCharacter> Enemy
 	UE_LOG(LogTemp, Warning, TEXT("[GameMode] Enemy respawn scheduled: %s in %.1fs"), *EnemyClass->GetName(), Delay);
 	FTimerHandle Handle;
 	GetWorldTimerManager().SetTimer(Handle, [this, EnemyClass, SpawnLoc, SpawnRot]() {
+		// 世界可能已被销毁（重启游戏 / 退出 PIE）：GetWorld() 为 null 时停止重生，防止空指针崩溃
+		UWorld* World = GetWorld();
+		if (!World || !EnemyClass) return;
+
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-		AEnemyCharacter* NewEnemy = GetWorld()->SpawnActor<AEnemyCharacter>(EnemyClass, SpawnLoc, SpawnRot, Params);
+		AEnemyCharacter* NewEnemy = World->SpawnActor<AEnemyCharacter>(EnemyClass, SpawnLoc, SpawnRot, Params);
 		UE_LOG(LogTemp, Warning, TEXT("[GameMode] Enemy respawned: %s at %s"), *GetNameSafe(NewEnemy), *SpawnLoc.ToString());
 	}, Delay, false);
 }

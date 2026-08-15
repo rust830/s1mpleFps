@@ -75,6 +75,10 @@ void AEnemyAIController::OnPerceptionUpdated(const TArray<AActor*>& UpdatedActor
 		if (!IsValid(Actor) || Actor == MyPawn || Actor == this)
 			continue;
 
+		// 跳过友军（其他敌人）：防止小队自相残杀
+		if (Cast<AEnemyCharacter>(Actor))
+			continue;
+
 		FActorPerceptionBlueprintInfo Info;
 		PerceptionComponents->GetActorsPerception(Actor, Info);
 
@@ -476,16 +480,24 @@ void AEnemyAIController::EnemyFire()
 	bool bHit = GetWorld()->LineTraceSingleByObjectType(Hit, MuzzleLocation, TraceEnd, ObjParams, Params);
 	if (bHit)
 	{
-		UDamageComponent* VictimDmg = Hit.GetActor()->FindComponentByClass<UDamageComponent>();
-		if (VictimDmg)
+		// 命中友军（其他敌人）时跳过伤害，避免小队自相残杀；开火音效/动画照常播放
+		if (Cast<AEnemyCharacter>(Hit.GetActor()))
 		{
-			float Applied = VictimDmg->ApplyDamage(Hit.BoneName, Weapon->BaseDamage, Weapon->ArmorPenetration, Enemy, Hit.Location);
-			UE_LOG(LogTemp, Warning, TEXT("AI HIT %s | bone: %s | dmg: %.1f | HP: %.1f"),
-				*Hit.GetActor()->GetName(), *Hit.BoneName.ToString(), Applied, VictimDmg->CurrentHealth);
+			UE_LOG(LogTemp, Warning, TEXT("AI fire blocked by ally: %s"), *Hit.GetActor()->GetName());
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("AI trace hit non-damageable: %s (use ECC_Pawn or check collision)"), *Hit.GetActor()->GetName());
+			UDamageComponent* VictimDmg = Hit.GetActor()->FindComponentByClass<UDamageComponent>();
+			if (VictimDmg)
+			{
+				float Applied = VictimDmg->ApplyDamage(Hit.BoneName, Weapon->BaseDamage, Weapon->ArmorPenetration, Enemy, Hit.Location);
+				UE_LOG(LogTemp, Warning, TEXT("AI HIT %s | bone: %s | dmg: %.1f | HP: %.1f"),
+					*Hit.GetActor()->GetName(), *Hit.BoneName.ToString(), Applied, VictimDmg->CurrentHealth);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("AI trace hit non-damageable: %s (use ECC_Pawn or check collision)"), *Hit.GetActor()->GetName());
+			}
 		}
 	}
 	else
@@ -538,7 +550,7 @@ void AEnemyAIController::FindSquadMembers()
 		float Dist = FVector::Dist(MyPawn->GetActorLocation(), Other->GetPawn()->GetActorLocation());
 		if (Dist <= SquadRadius)
 		{
-			SquadMembers.AddUnique(Other);
+			SquadMembers.AddUnique(TWeakObjectPtr<AEnemyAIController>(Other));
 		}
 	}
 
@@ -561,12 +573,23 @@ void AEnemyAIController::ShareTargetWithSquad()
 	AActor* MyTarget = Cast<AActor>(BB->GetValueAsObject("TargetActor"));
 	if (!MyTarget) return;
 
+	// 目标为友军时不共享（防御性检查，正常情况下 OnPerceptionUpdated 已过滤）
+	if (Cast<AEnemyCharacter>(MyTarget)) return;
+
 	EAIState MyState = (EAIState)BB->GetValueAsEnum("CurrentState");
 	if (MyState != EAIState::Combat) return;
 
-	for (AEnemyAIController* Member : SquadMembers)
+	// 清理已死亡/销毁的队友（弱引用，防止悬空指针导致访问违例崩溃）
+	SquadMembers.RemoveAll([](const TWeakObjectPtr<AEnemyAIController>& WeakMember)
 	{
-		if (!IsValid(Member) || !Member->GetPawn()) continue;
+		AEnemyAIController* M = WeakMember.Get();
+		return !M || !M->GetPawn();
+	});
+
+	for (const TWeakObjectPtr<AEnemyAIController>& WeakMember : SquadMembers)
+	{
+		AEnemyAIController* Member = WeakMember.Get();
+		if (!Member) continue;
 
 		UBlackboardComponent* MemberBB = Member->GetBlackboardComponent();
 		if (!MemberBB) continue;

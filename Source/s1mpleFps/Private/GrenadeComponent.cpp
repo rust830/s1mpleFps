@@ -198,9 +198,9 @@ void UGrenadeComponent::PerformThrowGrenade()
 	if (bIsCooking && CookingElapsed > 0) {
 		RemainingFuse = FMath::Max(RemainingFuse - CookingElapsed, 0.05f);
 	}
-	ServerThrowGrenade(CurrentGrenadeIndex, ThrowVelocity, RemainingFuse);
+	ServerThrowGrenade(CurrentGrenadeIndex, ThrowVelocity, RemainingFuse, bIsLowThrow);
 
-	// 雷已出手：隐藏手中的捏雷
+	
 	HideHeldGrenade();
 
 	// 投掷完不自动退出投掷模式，只重置烹饪状态，玩家可继续投下一颗或手动退出
@@ -215,13 +215,13 @@ void UGrenadeComponent::OnStartCooking()
 	bIsCooking = true;
 	CookingElapsed = 0.0f;
 
-	// 按下高抛/低抛瞬间：右手捏一颗本地雷（无碰撞、无初速，仅本地可见）
+	
 	ShowHeldGrenade();
 
 	UGrenadeData* Data = GetCurrnetGrenade();
 	if (Data)
 	{
-		// 诊断：确认低抛是不是真的向下（VelZ<0 才是向下抛）
+		
 		FVector Vel = ComputeThrowVelocity();
 		UE_LOG(LogTemp, Warning,
 			TEXT("[Grenade] OnStartCooking: bIsLowThrow=%d Angle=%.1f Speed=%.0f VelZ=%.0f (VelZ<0=向下抛)"),
@@ -296,7 +296,7 @@ void UGrenadeComponent::OnCookingExpired()
 	PerformThrowGrenade();
 }
 
-void UGrenadeComponent::ServerThrowGrenade_Implementation(int32 GrenadeIndex, FVector Velocity, float RemainingTime)
+void UGrenadeComponent::ServerThrowGrenade_Implementation(int32 GrenadeIndex, FVector Velocity, float RemainingTime, bool bLowThrow)
 {
 	if (!GetOwner()->HasAuthority() || !OwnerCharacter) return;
 	if (!GrenadeTypes.IsValidIndex(GrenadeIndex) || !GrenadeAmounts.IsValidIndex(GrenadeIndex)) return;
@@ -310,13 +310,15 @@ void UGrenadeComponent::ServerThrowGrenade_Implementation(int32 GrenadeIndex, FV
 	UWorld* World = GetWorld();
 	if (!World)return;
 
-	FVector Forward = OwnerCharacter->GetActorForwardVector();
-	FVector Location = OwnerCharacter->GetActorLocation() + Forward * 60.f + FVector(0.f, 0.f, 50.f);
+	FVector Location = ComputeThrowLocation(bLowThrow);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Grenade] ServerSpawn: bLowThrow=%d LocZ=%.0f VelZ=%.0f"), (int32)bLowThrow, Location.Z, Velocity.Z);
 
 	FActorSpawnParameters Params;
 	Params.Owner = OwnerCharacter;
 	Params.Instigator = OwnerCharacter;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
 
 	AGrenadeProjectile* Grenade = World->SpawnActor<AGrenadeProjectile>(Data->GrenadeProjectileClass, Location, FRotator::ZeroRotator, Params);
 	if (!Grenade) return;
@@ -366,6 +368,13 @@ FVector UGrenadeComponent::ComputeThrowVelocity()
 	FVector ThrowDir = Forward * FMath::Cos(AngleRad) + Up * FMath::Sin(AngleRad);
 	ThrowDir.Normalize();
 	return ThrowDir * Speed;
+}
+
+FVector UGrenadeComponent::ComputeThrowLocation(bool bLowThrow) const
+{
+	if (!OwnerCharacter) return FVector::ZeroVector;
+	const float ZOffset = bLowThrow ? -50.f : 50.f;
+	return OwnerCharacter->GetActorLocation() + OwnerCharacter->GetActorForwardVector() * 60.f + FVector(0.f, 0.f, ZOffset);
 }
 
 void UGrenadeComponent::ShowHeldGrenade()
@@ -422,7 +431,7 @@ void UGrenadeComponent::UpdateTrajectoryPreview()
 
 	// ① 预测第一次落点（不反弹），初速与重力同真实投掷一致
 	FPredictProjectilePathParams Params;
-	Params.StartLocation = CachedCamera->GetComponentLocation();
+	Params.StartLocation = ComputeThrowLocation(bIsLowThrow);
 	Params.LaunchVelocity = ComputeThrowVelocity();
 	Params.bTraceWithCollision = true;
 	Params.bTraceWithChannel = true;

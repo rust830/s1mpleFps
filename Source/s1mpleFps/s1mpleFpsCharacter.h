@@ -32,7 +32,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, Health, float, MaxHealth);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHealthItemsChanged);
 
-UCLASS(config=Game)
+UCLASS(config=Game)	
 class As1mpleFpsCharacter : public ACharacter
 {
 	GENERATED_BODY()

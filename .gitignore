@@ -25,6 +25,9 @@ Windows (3)/
 # Steam 本地开发 appid（各机器不同，不提交）
 steam_appid.txt
 
+# 临时/草稿文件（不提交）
+Temp.txt
+
 # Marketplace / Free assets — 从 Epic 商城重新下载即可
 Content/StarterContent/
 Content/ParagonMurdock/

@@ -38,7 +38,7 @@
 - 行为树 + EQS 环境查询
 - 4 级警戒状态（Calm → Suspicious → Alert → Combat）
 - 视觉 / 听觉 / 受伤 三种感知
-- 小队协调（目标共享、角色分配：Assault/Suppressor/Flanker）
+- 小队协调（目标共享、角色分配：Assault/Suppressor/Flanker，友军不互伤）
 - 掩体寻找、撤退、换弹 AI 行为
 - 死亡重生机制
 - 胜负判定：击杀目标数获胜 / 玩家死亡失败（蓝图可调）
@@ -180,7 +180,7 @@ cp Config/DefaultEngine.ini.template Config/DefaultEngine.ini
 3. PvP 网络复制 + RPC + 客户端预测
 4. 比赛系统（热身/加时/Sudden Death）
 5. 购买系统 + 聊天 + Session 管理
-6. 手雷系统 + HUD 完善 + Bug 修复
+6. 手雷系统 + HUD 完善 + 稳定性修复（AI 友军识别、重生生命周期保护）
 
 ## License
 

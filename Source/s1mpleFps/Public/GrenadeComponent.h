@@ -114,6 +114,9 @@ public:
 	// 计算当前投掷初速度（高抛/低抛共用），供 PerformThrowGrenade 与落点预测复用
 	FVector ComputeThrowVelocity();
 
+	// 计算出手点位置（高抛/低抛用不同 Z 偏移），服务器生成与落点预测共用，保证预览与实际一致
+	FVector ComputeThrowLocation(bool bLowThrow) const;
+
 	UFUNCTION()
 	void NextGrenade();
 	UFUNCTION()
@@ -131,7 +134,7 @@ protected:
 	UFUNCTION()
 	void OnRep_GrenadeInventory();
 	UFUNCTION(Server,Reliable)
-	void ServerThrowGrenade(int32 GrenadeIndex, FVector Velocity, float RemainingTime);
+	void ServerThrowGrenade(int32 GrenadeIndex, FVector Velocity, float RemainingTime, bool bLowThrow);
 	UFUNCTION(NetMulticast,Reliable)
 	void NetMulticastThrowSound(UGrenadeData* Data,FVector Velocity,float RemainingTime);
 

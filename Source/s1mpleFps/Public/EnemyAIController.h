@@ -157,7 +157,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Squad")
 	bool bEnableSquadCoordination = true;
 
-	TArray<AEnemyAIController*> SquadMembers;
+	TArray<TWeakObjectPtr<AEnemyAIController>> SquadMembers;
 
 	void FindSquadMembers();
 	void ShareTargetWithSquad();
