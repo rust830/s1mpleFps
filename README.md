@@ -44,7 +44,7 @@
 - 胜负判定：击杀目标数获胜 / 玩家死亡失败（蓝图可调）
 
 ### 🌐 PvP 网络
-- Listen Server + Steam 联机
+- Listen Server + Steam 联机(目前用局域网代替)
 - GameInstance Session 管理（Host/Find/Join）
 - 15+ RPC（Server/Client/Multicast）
 - 属性复制 + OnRep 回调
