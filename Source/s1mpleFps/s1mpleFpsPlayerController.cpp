@@ -107,15 +107,19 @@ void As1mpleFpsPlayerController::SetupInputComponent()
 
 void As1mpleFpsPlayerController::OpenChatBox(bool bIsTeam)
 {
-	if (bChatOpen)return;
+	UE_LOG(LogTemp, Warning, TEXT("OpenChatBox"));
+	if (bChatOpen) { UE_LOG(LogTemp, Warning, TEXT("bChatOpenAlready"));return; }
 	bChatOpen = true;
 	bCurrentChatIsTeam = bIsTeam;
 	
 	if (ChatClass && !ChatWidget) {
+		UE_LOG(LogTemp, Warning, TEXT("ChatClass&&!CHatWidget"));
 		ChatWidget = CreateWidget<UChatWidget>(this, ChatClass);
 		
 	}
 	if (ChatWidget) {
+		UE_LOG(LogTemp, Warning, TEXT("CHatWidget"));
+		ChatWidget->SetOwningPC(this);
 		ChatWidget->AddToViewport();
 		}
 		FInputModeGameAndUI InputMode;

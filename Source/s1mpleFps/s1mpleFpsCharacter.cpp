@@ -195,10 +195,11 @@ void As1mpleFpsCharacter::Die()
 			PC->bShowMouseCursor = true;
 		}
 
-		// Show death screen（PvE 任务已结束时不弹死亡界面，交给结算界面替代）
+		// Show death screen（PvE 任务已结束 或 PvP 比赛已结束 时不弹死亡界面，交给结算界面替代）
 		As1mpleFpsGameMode* SPGM = GetWorld()->GetAuthGameMode<As1mpleFpsGameMode>();
 		const bool bMissionOver = SPGM && (SPGM->bMissionCompleted || SPGM->bMissionFailed);
-		if (!bMissionOver)
+		const bool bMatchOver = GS && GS->bMatchEnded;
+		if (!bMissionOver && !bMatchOver)
 		{
 			if (DeathScreenWidget)
 			{
@@ -279,6 +280,9 @@ void As1mpleFpsCharacter::Respawn()
 	}
 
 	RespawnVisuals();
+
+	// 确定性刷新客户端血条：服务器直接用权威血量推送，不依赖 OnRep_Health / OnRep_bIsDead 的先后顺序
+	ClientOnRespawn(ReplicatedHealth, DamageComponent->MaxHealth);
 }
 
 void As1mpleFpsCharacter::RespawnVisuals()
@@ -375,6 +379,8 @@ void As1mpleFpsCharacter::BeginPlay()
 	// Sync ReplicatedHealth to DamageComponent's actual MaxHealth so initial
 	// replication and OnPossess don't use the stale default (100.0f).
 	ReplicatedHealth = DamageComponent->MaxHealth;
+	// MaxHealth 也复制到客户端，客户端血量上限用权威值而非本地默认值
+	ReplicatedMaxHealth = DamageComponent->MaxHealth;
 
 	// 保存第三人称 Mesh 的默认相对变换，供 RespawnVisuals 还原
 	DefaultMeshRelativeLocation = GetMesh()->GetRelativeLocation();
@@ -817,6 +823,7 @@ void As1mpleFpsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(As1mpleFpsCharacter, ReplicatedHealth);
+	DOREPLIFETIME(As1mpleFpsCharacter, ReplicatedMaxHealth);
 	DOREPLIFETIME(As1mpleFpsCharacter, bIsDeadReplicated);
 	DOREPLIFETIME(As1mpleFpsCharacter, CurrentWeapon);
 	DOREPLIFETIME(As1mpleFpsCharacter, WeaponInventory);
@@ -830,7 +837,7 @@ void As1mpleFpsCharacter::OnRep_Health()
 	
 	if (DamageComponent)
 		DamageComponent->CurrentHealth = ReplicatedHealth;
-	OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent ? DamageComponent->MaxHealth : 100.0f);
+	OnHealthChanged.Broadcast(ReplicatedHealth, ReplicatedMaxHealth);
 
 	// Update HUD directly from OnRep — this is the only reliable path for
 	// client health display.  The OnHealthChanged delegate may not be bound
@@ -842,9 +849,17 @@ void As1mpleFpsCharacter::OnRep_Health()
 		{
 			if (PC->HUDWidget)
 			{
-				PC->HUDWidget->UpdateHealthDisplay(ReplicatedHealth, DamageComponent ? DamageComponent->MaxHealth : 100.0f);
+				PC->HUDWidget->UpdateHealthDisplay(ReplicatedHealth, ReplicatedMaxHealth);
 			}
 		}
+	}
+}
+
+void As1mpleFpsCharacter::OnRep_MaxHealth()
+{
+	if (DamageComponent)
+	{
+		DamageComponent->MaxHealth = ReplicatedMaxHealth;
 	}
 }
 
@@ -861,12 +876,17 @@ void As1mpleFpsCharacter::OnRep_bIsDead()
 		// 注意：此时 ReplicatedHealth 可能还是死亡时的近零值（服务器
 		// Respawn() 里的新值复制还没到），直接广播 MaxHealth 避免血条闪0。
 		bIsDead = false;
+
+		// 兜底血量用局部变量，绝不要写 ReplicatedHealth 本身，
+		// 否则会吞掉随后真正复制过来的 OnRep_Health。
+		const float FallbackHealth = ReplicatedMaxHealth;
+
 		if (DamageComponent)
 		{
-			DamageComponent->CurrentHealth = DamageComponent->MaxHealth;
+			DamageComponent->CurrentHealth = FallbackHealth;
 		}
-		ReplicatedHealth = DamageComponent ? DamageComponent->MaxHealth : ReplicatedHealth;
-		OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent ? DamageComponent->MaxHealth : 100.0f);
+
+		OnHealthChanged.Broadcast(FallbackHealth, FallbackHealth);
 		// 镜像 OnRep_Health 的直接 HUD 更新，确保即使委托绑定丢失也能正确刷新血量 UI
 		if (IsLocallyControlled())
 		{
@@ -874,7 +894,7 @@ void As1mpleFpsCharacter::OnRep_bIsDead()
 			{
 				if (PC->HUDWidget)
 				{
-					PC->HUDWidget->UpdateHealthDisplay(ReplicatedHealth, DamageComponent ? DamageComponent->MaxHealth : 100.0f);
+					PC->HUDWidget->UpdateHealthDisplay(FallbackHealth, FallbackHealth);
 				}
 			}
 		}
@@ -1015,6 +1035,29 @@ void As1mpleFpsCharacter::SetActiveWeapon(UTP_WeaponComponent* NewWeapon)
 void As1mpleFpsCharacter::ServerRequestRespawn_Implementation()
 {
 	Respawn();
+}
+
+void As1mpleFpsCharacter::ClientOnRespawn_Implementation(float NewHealth, float NewMaxHealth)
+{
+	// 用服务端传入的权威血量刷新客户端本地状态 + 血条 UI
+	if (DamageComponent)
+	{
+		DamageComponent->CurrentHealth = NewHealth;
+		DamageComponent->MaxHealth = NewMaxHealth;
+	}
+
+	OnHealthChanged.Broadcast(NewHealth, NewMaxHealth);
+
+	if (IsLocallyControlled())
+	{
+		if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
+		{
+			if (PC->HUDWidget)
+			{
+				PC->HUDWidget->UpdateHealthDisplay(NewHealth, NewMaxHealth);
+			}
+		}
+	}
 }
 
 void As1mpleFpsCharacter::ServerPickUpWeapon_Implementation(AActor* HitActor)

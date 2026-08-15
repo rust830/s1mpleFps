@@ -28,6 +28,8 @@ UTP_WeaponComponent::UTP_WeaponComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 	MuzzleOffset = FVector(100.0f, 0.0f, 10.0f);
+	// 武器只在自己（本地控制者）视角可见，敌人视角看不到
+	SetOnlyOwnerSee(true);
 }
 
 

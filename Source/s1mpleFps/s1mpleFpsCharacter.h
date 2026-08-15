@@ -102,14 +102,22 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Health)
 	float ReplicatedHealth = 100.0f;
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MaxHealth)
+	float ReplicatedMaxHealth = 100.0f;
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_bIsDead)
 	bool bIsDeadReplicated = false;
 	UFUNCTION()
 	void OnRep_Health();
 	UFUNCTION()
+	void OnRep_MaxHealth();
+	UFUNCTION()
 	void OnRep_bIsDead();
 	UFUNCTION(Server, Reliable)
 	void ServerRequestRespawn();
+
+	// 服务端复活后，可靠地把权威血量推送给拥有客户端刷新血条 UI（不依赖 OnRep 回调的先后顺序）
+	UFUNCTION(Client, Reliable)
+	void ClientOnRespawn(float NewHealth, float NewMaxHealth);
 
 	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Respawn")
 	float RespawnDelay = 5.0f;

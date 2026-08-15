@@ -1,6 +1,11 @@
 #include "ChatWidget.h"
 #include "s1mpleFpsPlayerController.h"
 
+void UChatWidget::SetOwningPC(As1mpleFpsPlayerController* InPC)
+{
+	OwningPC = InPC;
+}
+
 void UChatWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -14,8 +19,7 @@ void UChatWidget::NativeConstruct()
 
 void UChatWidget::OnChatTextCommittedHandler(const FText& Text, ETextCommit::Type CommitMethod)
 {
-	As1mpleFpsPlayerController* PC = GetOwningPlayer<As1mpleFpsPlayerController>();
-	if (PC)
+	if (As1mpleFpsPlayerController* PC = OwningPC.Get())
 	{
 		PC->OnChatTextCommitted(Text, CommitMethod);
 	}
