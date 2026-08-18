@@ -5,32 +5,19 @@
 #include "HealthComponent.h"
 #include "WeaponInventoryComponent.h"
 #include "TP_WeaponComponent.h"
-#include "s1mpleFpsProjectile.h"
-#include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
-#include "TimerManager.h"
-#include "Engine/TimerHandle.h"
-#include "Engine/LocalPlayer.h"
-#include "WeaponData.h"
 #include "HealthData.h"
-#include "EnemyAIController.h"
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "s1mpleFpsPlayerController.h"
-#include "HUDWidget.h"
-#include "s1mpleFpsGameMode.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "s1mpleFpsPvPGameMode.h"
-#include "s1mpleFpsPlayerState.h"
 #include "s1mpleFpsGameState.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "Net/UnrealNetwork.h"
 #include "FlashWidget.h"
 #include "GrenadeComponent.h"
 
@@ -396,13 +383,6 @@ void As1mpleFpsCharacter::ReattachWeaponsForView(bool bToThirdPerson)
 			Weapon->SetOnlyOwnerSee(true);
 		}
 	}
-}
-
-// --- Network Replication ---
-
-void As1mpleFpsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 }
 
 void As1mpleFpsCharacter::GrantArmor(UArmorData* ArmorDataPtr)

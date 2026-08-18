@@ -5,10 +5,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
-#include "TimerManager.h"
 #include "Blueprint/UserWidget.h"
 #include "Perception/AIPerceptionStimuliSourceComponent.h"
-#include "Net/UnrealNetwork.h"
 #include "s1mpleFpsCharacter.generated.h"
 
 
@@ -18,13 +16,10 @@ class USkeletalMeshComponent;
 class UCameraComponent;
 class USpringArmComponent;
 class UInputAction;
-class UInputMappingContext;
 class UDamageComponent;
 struct FInputActionValue;
-class UWeaponData;
 class UArmorData;
 class UHealthData;
-class UTP_WeaponComponent;
 class UGrenadeComponent;
 class UHealthComponent;
 class UWeaponInventoryComponent;
@@ -86,9 +81,6 @@ public:
 
 public:
 	As1mpleFpsCharacter();
-
-	// --- Network replication ---
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	FVector DefaultMeshRelativeLocation;
 	FRotator DefaultMeshRelativeRotation;
