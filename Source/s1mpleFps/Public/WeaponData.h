@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "Engine/SkeletalMesh.h"
+#include "Animation/AnimSequence.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 
@@ -55,7 +56,10 @@ public:
 	USoundBase* FireSound;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
-	UAnimMontage* FireAnimation;
+	UAnimSequence* FireAnimation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
+	UAnimSequence* ReloadAnimation;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
 	TSubclassOf<As1mpleFpsProjectile> ProjectileClass;
@@ -107,6 +111,15 @@ public:
 	float OptimalCombatDistance = 5000.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
 	USkeletalMesh* WeaponMesh;
+
+	// 武器挂到 GripPoint 后的相对旋转（不同网格轴向不同：AK-47 枪管沿 Y 需旋转，标准枪沿 X 则为 0）
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
+	FRotator WeaponMeshRotation = FRotator::ZeroRotator;
+
+	// 武器挂到 GripPoint 后的相对位移（对齐握把）
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
+	FVector WeaponMeshOffset = FVector::ZeroVector;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData|Input")
 	UInputMappingContext* WeaponMappingContext;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData|Input")

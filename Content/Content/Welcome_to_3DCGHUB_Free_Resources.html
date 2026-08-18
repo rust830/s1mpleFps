@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="3DCGHub - Your ultimate source for 3D models, game engine assets, and CG tutorials.">
+    <title>3DCGHUB | Resource Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /**
+         * Project: 3DCGHUB Entry Portal
+         * Version: 2.1.0
+         * Updated: 2025-12-21
+         */
+        :root {
+            --brand-primary: #7289DA;
+            --brand-secondary: #2EA6DA;
+            --neon-purple: #a855f7;
+            --neon-blue: #3b82f6;
+            --bg-base: #05070a;
+            --bg-surface: #0f1218;
+            --bg-card: #161b22;
+            --text-primary: #ffffff;
+            --text-secondary: #949ba4;
+            --container-width: 1000px;
+            --border-glow: rgba(168, 85, 247, 0.2);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-base);
+            background: radial-gradient(circle at top, #1a1435 0%, #05070a 100%);
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 40px 20px;
+            line-height: 1.5;
+        }
+
+        .portal-container {
+            width: 100%;
+            max-width: var(--container-width);
+            background-color: var(--bg-surface);
+            border-radius: 32px;
+            overflow: hidden;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8), 
+                        0 0 40px var(--border-glow);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            animation: containerEntrance 0.6s ease-out;
+        }
+
+        @keyframes containerEntrance {
+            from { opacity: 0; transform: scale(0.98) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .portal-header {
+            width: 100%;
+            aspect-ratio: 2560 / 1135;
+            overflow: hidden;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .portal-banner {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .portal-body {
+            padding: 4rem 3rem;
+            text-align: center;
+        }
+
+        .main-title {
+            color: var(--text-primary);
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 800;
+            margin-bottom: 1.5rem;
+            letter-spacing: -0.04em;
+            background: linear-gradient(to right, #fff, var(--brand-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .main-description {
+            font-size: 1.15rem;
+            max-width: 800px;
+            margin: 0 auto 4rem auto;
+            color: var(--text-secondary);
+        }
+
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 4rem;
+        }
+
+        .category-card {
+            background-color: var(--bg-card);
+            padding: 2rem 1.5rem;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .category-card:hover {
+            transform: translateY(-8px);
+            background-color: #1c222b;
+            border-color: var(--neon-purple);
+            box-shadow: 0 10px 30px rgba(168, 85, 247, 0.15);
+        }
+
+        .category-icon {
+            font-size: 1.75rem;
+        }
+
+        .category-label {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.95rem;
+            line-height: 1.3;
+        }
+
+        .cta-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 1.25rem 2.5rem;
+            border-radius: 18px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #ffffff;
+            transition: all 0.2s ease;
+            gap: 12px;
+        }
+
+        .btn-website {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            box-shadow: 0 15px 35px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-telegram {
+            background: linear-gradient(135deg, #2EA6DA 0%, #229ED9 100%);
+            box-shadow: 0 15px 35px rgba(46, 166, 218, 0.3);
+        }
+
+        .action-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            filter: brightness(1.15);
+        }
+
+        .portal-footer {
+            margin-top: 5rem;
+            padding-top: 2.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 900px) {
+            .category-grid { grid-template-columns: repeat(2, 1fr); }
+            .portal-body { padding: 3rem 2rem; }
+        }
+
+        @media (max-width: 600px) {
+            .category-grid { grid-template-columns: 1fr; }
+            .cta-wrapper { flex-direction: column; }
+            .action-btn { width: 100%; justify-content: center; }
+            .main-title { font-size: 2.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <main class="portal-container">
+        <header class="portal-header">
+            <img src="https://3dcghub.com/wp-content/uploads/2026/02/Gemini_Generated_Image_xp7ft7xp7ft7xp7f--scaled.webp" 
+                 alt="3DCGHUB Cinematic Gateway Banner" 
+                 class="portal-banner">
+        </header>
+
+        <section class="portal-body">
+            <h1 class="main-title">3DCGHUB</h1>
+            
+            <p class="main-description">
+                Welcome to 3DCGHub – the ultimate free platform for creative and technical resources. 
+                Explore professional assets and tutorials designed to elevate your creative workflow.
+            </p>
+
+            <div class="category-grid">
+                <div class="category-card">
+                    <span class="category-icon">📦</span>
+                    <span class="category-label">Free High-Quality<br>3D Models</span>
+                </div>
+                <div class="category-card">
+                    <span class="category-icon">🟠</span>
+                    <span class="category-label">Free Blender<br>Resources</span>
+                </div>
+                <div class="category-card">
+                    <span class="category-icon">🔳</span>
+                    <span class="category-label">Free Unity<br>Assets & Tools</span>
+                </div>
+                <div class="category-card">
+                    <span class="category-icon">🎮</span>
+                    <span class="category-label">Free UE<br>Game Assets</span>
+                </div>
+                <div class="category-card">
+                    <span class="category-icon">🎥</span>
+                    <span class="category-label">Free Video<br>Tutorials & Courses</span>
+                </div>
+                <div class="category-card">
+                    <span class="category-icon">⚙️</span>
+                    <span class="category-label">Free Software<br>& Plugins</span>
+                </div>
+            </div>
+
+            <nav class="cta-wrapper">
+                <a href="https://3dcghub.com/" class="action-btn btn-website">
+                    <span>🌐</span> Enter Website
+                </a>
+                <a href="https://t.me/the3dcghub" class="action-btn btn-telegram" target="_blank" rel="noopener noreferrer">
+                    <span>✈️</span> Telegram Channel
+                </a>
+            </nav>
+
+            <footer class="portal-footer">
+                &copy; 2025 3DCGHUB &bull; Professional Creative Assets Hub
+            </footer>
+        </section>
+    </main>
+
+</body>
+</html>

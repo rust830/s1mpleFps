@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimSequence.h"
 #include "WeaponData.h"
 #include "Net/UnrealNetwork.h"
 #include "TP_WeaponComponent.generated.h"
@@ -32,9 +33,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Gameplay)
 	UParticleSystem* MuzzleFlashEffect;
 
-	/** AnimMontage to play each time we fire */
+	/** AnimSequence to play each time we fire (played on the weapon's own skeletal mesh) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
-	UAnimMontage* FireAnimation;
+	UAnimSequence* FireAnimation;
+
+	/** AnimSequence to play when reloading (played on the weapon's own skeletal mesh) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
+	UAnimSequence* ReloadAnimation;
 
 	/** Gun muzzle's offset from the characters location */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Gameplay)
@@ -148,6 +153,29 @@ public:
 	FVector SavedSocketOffset = FVector::ZeroVector;
 	FVector SavedTargetOffset = FVector::ZeroVector;
 
+	// --- 机瞄(ADS)对齐参数：用枪上 muzzle / sightalign 插槽把机瞄直线对准准心 ---
+	// 照门插槽名（枪骨骼体上）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aiming")
+	FName SightAlignSocketName = "sightalign";
+	// 枪口插槽名（枪骨骼体上）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aiming")
+	FName MuzzleSocketName = "muzzle";
+	// 瞄准时照门距相机前向的距离(cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aiming")
+	float ADSSightDistance = 30.0f;
+	// 瞄准时照门相对眼睛的垂直偏移(cm)，负值 = 略低于视线
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aiming")
+	float ADSSightVerticalOffset = 0.0f;
+	// 武器变换进入/退出 ADS 的插值速度
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aiming")
+	float ADSTransformInterpSpeed = 15.0f;
+	// 当前 ADS 混合系数(0=腰射, 1=完全机瞄)
+	UPROPERTY(BlueprintReadOnly, Category = "Aiming")
+	float ADSBlendAlpha = 0.0f;
+	// 缓存的机瞄相对变换（StartAiming 时算一次，之后每帧只插值，避免每帧重算导致乱转）
+	FTransform CachedADSRelativeTransform = FTransform::Identity;
+	bool bHasValidADSTransform = false;
+
 	//Aiming Function
 	UFUNCTION(BlueprintCallable)
 	void StartAiming();
@@ -155,6 +183,11 @@ public:
 	void EndAiming();
 	UFUNCTION(BlueprintCallable)
 	void ToggleAiming();
+
+	// 计算把机瞄对准相机准心时、武器相对 GripPoint 的目标变换
+	FTransform ComputeADSRelativeTransform() const;
+	// 每帧混合腰射/机瞄变换
+	void UpdateWeaponAim(float DeltaTime);
 
 	//switch guns and equipped guns
 	UFUNCTION(BlueprintCallable)
@@ -190,6 +223,12 @@ public:
 	void StartFire();
 	UFUNCTION(BlueprintCallable)
 	void StopFire();
+
+	/** Play an animation sequence on the weapon's own skeletal mesh (single-node mode, no AnimBP needed). */
+	void PlayWeaponAnimation(UAnimSequence* Animation, bool bLooping = false);
+
+	/** Apply WeaponData's mesh rotation/offset to relative transform. Call after AttachToComponent (SnapToTarget zeroes it). */
+	void ApplyWeaponMeshTransform();
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;

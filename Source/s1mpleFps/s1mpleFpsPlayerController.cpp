@@ -5,6 +5,7 @@
 #include "ChatWidget.h"
 #include "HUDWidget.h"
 #include "s1mpleFpsCharacter.h"
+#include "HealthComponent.h"
 #include "GrenadeComponent.h"
 #include "DamageComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -326,7 +327,7 @@ void As1mpleFpsPlayerController::OnPossess(APawn* InPawn)
 
 	if (BoundCharacter)
 	{
-		BoundCharacter->OnHealthChanged.RemoveDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
+		BoundCharacter->HealthComponent->OnHealthChanged.RemoveDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
 		BoundCharacter = nullptr;
 	}
 
@@ -334,10 +335,10 @@ void As1mpleFpsPlayerController::OnPossess(APawn* InPawn)
 	{
 		
 
-		Char->OnHealthChanged.AddDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
-		Char->OnHealingStateChanged.AddDynamic(this, &As1mpleFpsPlayerController::OnPawnHealingStateChanged);
+		Char->HealthComponent->OnHealthChanged.AddDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
+		Char->HealthComponent->OnHealingStateChanged.AddDynamic(this, &As1mpleFpsPlayerController::OnPawnHealingStateChanged);
 		BoundCharacter = Char;
-		Char->OnRep_Health();
+		Char->HealthComponent->OnRep_Health();
 
 		// Seed weapon/armor name + ammo display on initial spawn.
 		// Without this, the text stays hidden until the first SwitchWeapon call.
@@ -361,8 +362,8 @@ void As1mpleFpsPlayerController::OnUnPossess()
 {
 	if (BoundCharacter)
 	{
-		BoundCharacter->OnHealthChanged.RemoveDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
-		BoundCharacter->OnHealingStateChanged.RemoveDynamic(this, &As1mpleFpsPlayerController::OnPawnHealingStateChanged);
+		BoundCharacter->HealthComponent->OnHealthChanged.RemoveDynamic(this, &As1mpleFpsPlayerController::OnPawnHealthChanged);
+		BoundCharacter->HealthComponent->OnHealingStateChanged.RemoveDynamic(this, &As1mpleFpsPlayerController::OnPawnHealingStateChanged);
 		BoundCharacter = nullptr;
 	}
 
@@ -384,7 +385,7 @@ void As1mpleFpsPlayerController::OnPawnHealingStateChanged()
 	if (!Char) return;
 	if (HUDWidget)
 	{
-		HUDWidget->UpdateHealingDisplay(Char->bIsHealing, Char->HealingDuration);
+		HUDWidget->UpdateHealingDisplay(Char->HealthComponent->bIsHealing, Char->HealthComponent->HealingDuration);
 	}
 }
 

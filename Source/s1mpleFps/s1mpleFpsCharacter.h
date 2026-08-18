@@ -26,11 +26,10 @@ class UArmorData;
 class UHealthData;
 class UTP_WeaponComponent;
 class UGrenadeComponent;
+class UHealthComponent;
 
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, Health, float, MaxHealth);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHealthItemsChanged);
 
 UCLASS(config=Game)	
 class As1mpleFpsCharacter : public ACharacter
@@ -56,6 +55,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))
 	UGrenadeComponent* GrenadeComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))
+	UHealthComponent* HealthComponent;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI", meta = (AllowPrivateAccess = "true"))
 	UAIPerceptionStimuliSourceComponent* StimuliSource;
 
@@ -80,48 +82,9 @@ public:
 
 public:
 	As1mpleFpsCharacter();
-	UFUNCTION()
-	void Die();
-	UFUNCTION()
-	void OnHealthDamaged(float Damage, AActor* DamageInstigator);
-	UFUNCTION(BlueprintCallable)
-	void Respawn();
-	void RespawnVisuals();
-	UFUNCTION(BlueprintCallable)
-	void HideDeathWidget();
-	bool bIsDead = false;
 
 	// --- Network replication ---
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	UPROPERTY(BlueprintAssignable)
-	FOnHealthChanged OnHealthChanged;
-	UPROPERTY(BlueprintAssignable)
-	FOnHealthItemsChanged OnHealthItemsChanged;
-	UPROPERTY(BlueprintAssignable)
-	FOnHealthItemsChanged OnHealingStateChanged;
-
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Health)
-	float ReplicatedHealth = 100.0f;
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MaxHealth)
-	float ReplicatedMaxHealth = 100.0f;
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_bIsDead)
-	bool bIsDeadReplicated = false;
-	UFUNCTION()
-	void OnRep_Health();
-	UFUNCTION()
-	void OnRep_MaxHealth();
-	UFUNCTION()
-	void OnRep_bIsDead();
-	UFUNCTION(Server, Reliable)
-	void ServerRequestRespawn();
-
-	// 服务端复活后，可靠地把权威血量推送给拥有客户端刷新血条 UI（不依赖 OnRep 回调的先后顺序）
-	UFUNCTION(Client, Reliable)
-	void ClientOnRespawn(float NewHealth, float NewMaxHealth);
-
-	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Respawn")
-	float RespawnDelay = 5.0f;
-	FTimerHandle RespawnHandle;
 
 	FVector DefaultMeshRelativeLocation;
 	FRotator DefaultMeshRelativeRotation;
@@ -174,9 +137,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	TSubclassOf<class UUserWidget> DeathScreenWidgetClass;
 
-	UPROPERTY(BlueprintReadOnly, Category = "UI")
-	class UUserWidget* DeathScreenWidget;
-
 	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Audio")
 	USoundBase* FootStepSound;
 protected:
@@ -189,6 +149,8 @@ public:
 	USkeletalMeshComponent* GetMesh1P() const { return Mesh1P; }
 	/** Returns FirstPersonCameraComponent subobject **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return FirstPersonCameraComponent; }
+
+	bool IsDead() const;
 
 	UFUNCTION(Server,Reliable)
 	void ServerPickUpWeapon(AActor* HitActor);
@@ -283,37 +245,5 @@ public:
 	// 受击屏幕血反馈（红色闪屏），服务器→客户端
 	UFUNCTION(Client, Reliable)
 	void ClientDamageFeedback(float Intensity, float Duration);
-
-	UPROPERTY(ReplicatedUsing=OnRep_HealthItems,BlueprintReadWrite)
-	TArray<UHealthData*> HealthTypes;
-	UPROPERTY(ReplicatedUsing=OnRep_HealthItems,BlueprintReadWrite)
-	TArray<int32> HealthAmount;
-
-	UFUNCTION()
-	void OnRep_HealthItems();
-	UFUNCTION(Server,Reliable)
-	void ServerUseHealth(int32 HealthIndex);
-	UFUNCTION(BlueprintCallable)
-	void UseHealth(int32 HealthIndex);
-	// 取消打药：恢复移速、清定时器、收起进度环（本地清理，客户端/服务器各自调用）
-	UFUNCTION(BlueprintCallable)
-	void CancelHealing();
-	// 客户端通知服务器取消打药（否则服务器定时器仍会结算回血+扣道具）
-	UFUNCTION(Server, Reliable)
-	void ServerCancelHealing();
-	// 服务器通知客户端取消打药（受击打断时让客户端本地 UI/移速也复位）
-	UFUNCTION(Client, Reliable)
-	void ClientCancelHealing();
-	UPROPERTY(BlueprintReadOnly)
-	bool bIsHealing = false;
-	UPROPERTY(BlueprintReadOnly)
-	float HealingDuration = 0.0f;
-	FTimerHandle HealingHandle;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Healing")
-	float HealingSpeedMultiplier = 0.5f;
-
-private:
-	float SavedWalkSpeed;
 
 };

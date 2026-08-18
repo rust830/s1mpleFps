@@ -69,7 +69,7 @@ void UGrenadeComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 void UGrenadeComponent::ToggleGrenadeMode()
 {
 	if (!OwnerCharacter)return;
-	if (OwnerCharacter->bIsDead)return;
+	if (OwnerCharacter->IsDead())return;
 	if (bIsEquipped) {
 		if (bIsCooking)return;
 		UnequippedGrenade();
@@ -156,7 +156,7 @@ void UGrenadeComponent::ForceUnequip()
 void UGrenadeComponent::EquippedGrenade()
 {
 	if (bIsEquipped || !HasGrenade())return;
-	if (!OwnerCharacter || OwnerCharacter->bIsDead)return;
+	if (!OwnerCharacter || OwnerCharacter->IsDead())return;
 
 	bIsEquipped = true;
 	if (OwnerCharacter->CurrentWeapon)OwnerCharacter->CurrentWeapon->UnEquip();

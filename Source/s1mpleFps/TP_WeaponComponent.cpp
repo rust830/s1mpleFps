@@ -71,6 +71,8 @@ void UTP_WeaponComponent::OnRep_WeaponData()
 		FireSound = WeaponData->FireSound;
 	if (!FireAnimation && WeaponData->FireAnimation)
 		FireAnimation = WeaponData->FireAnimation;
+	if (!ReloadAnimation && WeaponData->ReloadAnimation)
+		ReloadAnimation = WeaponData->ReloadAnimation;
 	if (!FireAction) FireAction = WeaponData->WeaponFireAction;
 	if (!ReloadAction) ReloadAction = WeaponData->WeaponReloadAction;
 	if (!SwitchAction) SwitchAction = WeaponData->WeaponSwitchAction;
@@ -114,7 +116,11 @@ void UTP_WeaponComponent::StartAiming()
 	if (!Character || Character->CurrentWeapon != this) return;
 	bIsAiming = true;
 	TargetFOV = ADSFOV;
-	if (Character->bIsThirdPerson) {
+	bHasValidADSTransform = false;
+
+	if (Character->bIsThirdPerson)
+	{
+		// 第三人称：走弹簧臂，不动武器
 		SavedSpringArmLength = Character->ThirdPersonSpringArm->TargetArmLength;
 		SavedSocketOffset = Character->ThirdPersonSpringArm->SocketOffset;
 		SavedTargetOffset = Character->ThirdPersonSpringArm->TargetOffset;
@@ -122,6 +128,24 @@ void UTP_WeaponComponent::StartAiming()
 		Character->ThirdPersonSpringArm->SocketOffset = ADSSocketOffset;
 		Character->ThirdPersonSpringArm->TargetOffset = ADSTargetOffset;
 		Character->GetMesh()->SetOwnerNoSee(true);
+		return;
+	}
+
+	// 第一人称：机瞄相对变换只算一次并缓存（相机与 GripPoint 刚性连接，该变换不随视角变化）
+	if (DoesSocketExist(SightAlignSocketName) && DoesSocketExist(MuzzleSocketName))
+	{
+		CachedADSRelativeTransform = ComputeADSRelativeTransform();
+		bHasValidADSTransform = true;
+		UE_LOG(LogTemp, Log, TEXT("[ADS] %s 机瞄相对变换缓存成功：位置=%s 旋转=%s"),
+			*GetName(),
+			*CachedADSRelativeTransform.GetLocation().ToString(),
+			*CachedADSRelativeTransform.GetRotation().Rotator().ToString());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ADS] 武器 %s 缺少插槽 '%s' 或 '%s'，机瞄对齐失效。请检查枪的骨骼体插槽名，或调整 SightAlignSocketName / MuzzleSocketName。"),
+			*GetName(), *SightAlignSocketName.ToString(), *MuzzleSocketName.ToString());
 	}
 }
 
@@ -159,11 +183,11 @@ void UTP_WeaponComponent::Equip()
 	// 3. 远程角色（模拟代理） → 始终隐藏
 	const bool bShouldShow = Character && Character->IsLocallyControlled() && !Character->bIsThirdPerson;
 	SetVisibility(bShouldShow);
-	if (!bShouldShow)
-		SetHiddenInGame(true, true);
+	SetHiddenInGame(!bShouldShow, true);
 
 	CurrentFOV = DefaultFOV;
 	TargetFOV = DefaultFOV;
+	ADSBlendAlpha = 0.0f;
 	CurrentAmmo = ReplicatedCurrentAmmo;
 	SpareAmmo = ReplicatedSpareAmmo;
 	OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
@@ -253,6 +277,7 @@ void UTP_WeaponComponent::UnEquip()
 	bIsReloading = false;
 	bIsAiming = false;
 	TargetFOV = DefaultFOV;
+	ADSBlendAlpha = 0.0f;
 
 	if (GetWorld())
 	{
@@ -290,6 +315,9 @@ void UTP_WeaponComponent::Reload()
 	if (SpareAmmo <= 0) return;
 
 	bIsReloading = true;
+
+	// 在武器自身骨骼网格上播放换弹动画序列
+	PlayWeaponAnimation(ReloadAnimation, false);
 
 	if (Character->HasAuthority())
 	{
@@ -352,7 +380,7 @@ void UTP_WeaponComponent::StartSingleFire()
 
 	if (Character->GetController() == nullptr) return;
 
-	if (Character->bIsDead)
+	if (Character->IsDead())
 	{
 		
 		return;
@@ -430,11 +458,8 @@ void UTP_WeaponComponent::StartSingleFire()
 
 	if (FireAnimation != nullptr)
 	{
-		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
-		if (AnimInstance != nullptr)
-		{
-			AnimInstance->Montage_Play(FireAnimation, 1.f);
-		}
+		// 在武器自身骨骼网格上播放开火动画序列
+		PlayWeaponAnimation(FireAnimation, false);
 	}
 
 	if (CurrentFireMode == EFireModeEnum::SemiAuto) {
@@ -499,12 +524,8 @@ void UTP_WeaponComponent::MulticastFireEffect_Implementation(FVector SpawnLocati
 	if (FireSound != nullptr && Character) {
 		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
 	}
-	if (FireAnimation != nullptr && Character) {
-		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
-		if (AnimInstance != nullptr)
-		{
-			AnimInstance->Montage_Play(FireAnimation, 1.f);
-		}
+	if (FireAnimation != nullptr) {
+		PlayWeaponAnimation(FireAnimation, false);
 	}
 }
 
@@ -603,11 +624,12 @@ void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	if (!WeaponData) return;
 	if (!Character) return;
 	if (Character->CurrentWeapon != this) return;
-	if (Character->bIsDead) return;
+	if (Character->IsDead()) return;
 
 	ApplyAndDecayRecoil(DeltaTime);
 	ApplyAndDecaySpread(DeltaTime);
 	DecayMuzzleShake(DeltaTime);
+	UpdateWeaponAim(DeltaTime);
 
 	// FOV 插值：使用 Character 自己的 Controller，而非 PlayerIndex 0（多人时客户端拿不到）
 	APlayerController* PC = Cast<APlayerController>(Character->GetController());
@@ -670,10 +692,116 @@ void UTP_WeaponComponent::DecayMuzzleShake(float DeltaTime)
 	SetRelativeLocation(MuzzleOriginalLocation + MuzzleShakeOffset);
 }
 
+FTransform UTP_WeaponComponent::ComputeADSRelativeTransform() const
+{
+	// 不满足条件时返回当前相对变换，避免跳变
+	if (!Character || !Character->FirstPersonCameraComponent)
+	{
+		return GetRelativeTransform();
+	}
+	if (!DoesSocketExist(SightAlignSocketName) || !DoesSocketExist(MuzzleSocketName))
+	{
+		return GetRelativeTransform();
+	}
+
+	const UCameraComponent* Cam = Character->FirstPersonCameraComponent;
+	const FVector CamLoc = Cam->GetComponentLocation();
+	const FVector CamFwd = Cam->GetForwardVector();
+	const FVector CamUp = Cam->GetUpVector();
+
+	// 枪刚体上的两个固定点（本地空间）
+	const FVector LocalSight  = GetSocketTransform(SightAlignSocketName, RTS_Component).GetLocation();
+	const FVector LocalMuzzle = GetSocketTransform(MuzzleSocketName, RTS_Component).GetLocation();
+	const FVector LocalSightDir = (LocalMuzzle - LocalSight).GetSafeNormal(); // 瞄准轴(朝前)
+	if (LocalSightDir.IsNearlyZero())
+	{
+		return GetRelativeTransform(); // 两插槽重叠，无法确定瞄准轴
+	}
+
+	// 用「先对齐瞄准轴、再对齐上方向」两步求旋转，规避单步 FindBetweenNormals 的轴向跳变(乱转)
+	FVector LocalUp = FVector::UpVector; // 枪网格的“上”默认 +Z
+	LocalUp = (LocalUp - LocalSightDir * (LocalUp | LocalSightDir)).GetSafeNormal();
+	if (LocalUp.IsNearlyZero())
+	{
+		return GetRelativeTransform();
+	}
+	// 第一步：瞄准轴 -> 相机前向
+	const FQuat Q1 = FQuat::FindBetweenNormals(LocalSightDir, CamFwd);
+	// 第二步：把“上”绕相机前向滚转到相机上方向（两者都垂直于 CamFwd，不会退化）
+	const FQuat Q2 = FQuat::FindBetweenNormals(Q1.RotateVector(LocalUp), CamUp);
+	const FQuat RotQ = Q2 * Q1;
+
+	// 照门目标世界位置：相机正前方(准心线上)。枪口与照门共线 => 机瞄直线 = 准心线
+	const FVector TargetSightPos = CamLoc + CamFwd * ADSSightDistance + CamUp * ADSSightVerticalOffset;
+	const FVector DesiredWorldLoc = TargetSightPos - RotQ.RotateVector(LocalSight);
+	const FTransform DesiredWorld(RotQ, DesiredWorldLoc);
+
+	// 转成相对 GripPoint 的相对变换
+	if (const USceneComponent* Parent = GetAttachParent())
+	{
+		const FTransform ParentWorld = Parent->GetSocketTransform(GetAttachSocketName());
+		return DesiredWorld.GetRelativeTransform(ParentWorld);
+	}
+	return DesiredWorld;
+}
+
+void UTP_WeaponComponent::UpdateWeaponAim(float DeltaTime)
+{
+	if (!Character) return;
+	// 第三人称走弹簧臂逻辑，不在这里移动武器
+	if (Character->bIsThirdPerson) return;
+
+	const float TargetAlpha = bIsAiming ? 1.0f : 0.0f;
+	ADSBlendAlpha = FMath::FInterpTo(ADSBlendAlpha, TargetAlpha, DeltaTime, ADSTransformInterpSpeed);
+	// 接近端点时直接落地到 0/1，保证稳态时写出的变换逐位一致，不残留每帧极小量插值
+	if (FMath::Abs(ADSBlendAlpha - TargetAlpha) < 0.001f)
+	{
+		ADSBlendAlpha = TargetAlpha;
+	}
+
+	// 腰射相对变换 = 基础挂载变换 + 后坐力/枪口抖动（与 DecayMuzzleShake 结果一致）
+	FTransform HipRel;
+	HipRel.SetLocation(MuzzleOriginalLocation + MuzzleShakeOffset);
+	HipRel.SetRotation(MuzzleShakeRotation.Quaternion() * MuzzleOriginalRotation.Quaternion());
+	HipRel.SetScale3D(FVector::OneVector);
+
+	// 完全收起：保持腰射变换即可（也兼容 DecayMuzzleShake 已设置的变换）
+	if (ADSBlendAlpha <= KINDA_SMALL_NUMBER)
+	{
+		SetRelativeTransform(HipRel);
+		return;
+	}
+
+	// 插槽缺失或尚未计算缓存时，保持腰射（仅缩放 FOV）
+	if (!bHasValidADSTransform)
+	{
+		SetRelativeTransform(HipRel);
+		return;
+	}
+
+	FTransform Blended;
+	Blended.Blend(HipRel, CachedADSRelativeTransform, ADSBlendAlpha);
+	SetRelativeTransform(Blended);
+}
 
 void UTP_WeaponComponent::ResetFireCooldown()
 {
 	bIsOnFireCooldown = false;
+}
+
+void UTP_WeaponComponent::PlayWeaponAnimation(UAnimSequence* Animation, bool bLooping)
+{
+	if (!Animation) return;
+	// 武器自身的骨骼网格（本组件）用单节点动画模式播放，无需 AnimBP
+	SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	PlayAnimation(Animation, bLooping);
+}
+
+void UTP_WeaponComponent::ApplyWeaponMeshTransform()
+{
+	// AttachToComponent(SnapToTarget) 会把相对变换清零，所以每次挂载后都要按 WeaponData 重新套一遍
+	SetRelativeRotation(WeaponData ? WeaponData->WeaponMeshRotation : FRotator::ZeroRotator);
+	SetRelativeLocation(WeaponData ? WeaponData->WeaponMeshOffset : FVector::ZeroVector);
 }
 
 bool UTP_WeaponComponent::AttachWeapon(As1mpleFpsCharacter* TargetCharacter)
@@ -700,10 +828,15 @@ bool UTP_WeaponComponent::AttachWeapon(As1mpleFpsCharacter* TargetCharacter)
 			FireSound = WeaponData->FireSound;
 		if (!FireAnimation && WeaponData->FireAnimation)
 			FireAnimation = WeaponData->FireAnimation;
+		if (!ReloadAnimation && WeaponData->ReloadAnimation)
+			ReloadAnimation = WeaponData->ReloadAnimation;
 	}
 
 	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
 	AttachToComponent(Character->GetMesh1P(), AttachmentRules, FName(TEXT("GripPoint")));
+
+	// 武器挂点的相对变换按每把武器的 WeaponData 配置（不同网格轴向/握把位置不同，不能硬编码）
+	ApplyWeaponMeshTransform();
 
 	MuzzleOriginalLocation = GetRelativeLocation();
 	MuzzleOriginalRotation = GetRelativeRotation();

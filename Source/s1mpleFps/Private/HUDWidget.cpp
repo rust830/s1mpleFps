@@ -6,6 +6,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "s1mpleFpsCharacter.h"
+#include "HealthComponent.h"
 #include "DamageComponent.h"
 #include "ArmorData.h"
 #include "WeaponData.h"
@@ -194,7 +195,7 @@ void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill
 	APlayerController* PC = GetOwningPlayer();
 	if (!PC)return;
 	if (As1mpleFpsCharacter* Character = Cast<As1mpleFpsCharacter>(PC->GetPawn())) {
-		Character->HideDeathWidget();
+		Character->HealthComponent->HideDeathWidget();
 	}
 	bool bIsWinner = PC && PC->PlayerState && PC->PlayerState->GetPlayerName() == WinnerName;
 

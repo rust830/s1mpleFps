@@ -72,7 +72,7 @@ void As1mpleFpsProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActo
 	// 跳过已死亡角色
 	if (As1mpleFpsCharacter* HitChar = Cast<As1mpleFpsCharacter>(OtherActor))
 	{
-		if (HitChar->bIsDead) return;
+		if (HitChar->IsDead()) return;
 	}
 
 	

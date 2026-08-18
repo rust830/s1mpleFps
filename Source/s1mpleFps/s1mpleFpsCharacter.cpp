@@ -2,6 +2,7 @@
 
 #include "s1mpleFpsCharacter.h"
 #include "DamageComponent.h"
+#include "HealthComponent.h"
 #include "TP_PickUpComponent.h"
 #include "TP_WeaponComponent.h"
 #include "Engine/OverlapResult.h"
@@ -80,12 +81,11 @@ As1mpleFpsCharacter::As1mpleFpsCharacter()
 
 	// 隐藏第三人称模型，只显示第一人称手臂
 	GetMesh()->SetOwnerNoSee(true);
-	
+
 
 	DamageComponent = CreateDefaultSubobject<UDamageComponent>(TEXT("DamageComponent"));
-	DamageComponent->OnDeath.AddDynamic(this, &As1mpleFpsCharacter::Die);
-	DamageComponent->OnDamaged.AddDynamic(this, &As1mpleFpsCharacter::OnHealthDamaged);
 
+	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 
 	GrenadeComponent = CreateDefaultSubobject<UGrenadeComponent>(TEXT("GrenadeComponent"));
 
@@ -108,264 +108,9 @@ As1mpleFpsCharacter::As1mpleFpsCharacter()
 
 }
 
-void As1mpleFpsCharacter::Die()
+bool As1mpleFpsCharacter::IsDead() const
 {
-	
-
-	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
-	if (GS && GS->bIsWarmUp) {
-		// 热身阶段不掉血：将血量恢复到满，防止热身结束后永久无敌
-		DamageComponent->CurrentHealth = DamageComponent->MaxHealth;
-		ReplicatedHealth = DamageComponent->MaxHealth;
-		
-		return;
-	}
-
-	if (bIsDead) {
-		
-		return;
-	}
-	bIsDead = true;
-	bIsDeadReplicated = true;
-
-	// 手雷模式：强制收回，不投掷
-	if (GrenadeComponent && GrenadeComponent->bIsEquipped)
-	{
-		GrenadeComponent->ForceUnequip();
-	}
-
-	// 停止开火/换弹，防止 Timer 继续循环
-	if (CurrentWeapon)
-	{
-		CurrentWeapon->StopAutoFire();
-		CurrentWeapon->CancelReload();
-	}
-
-	// 取消治疗计时器，防止死亡时浪费药品
-	GetWorldTimerManager().ClearTimer(HealingHandle);
-	if (bIsHealing)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = SavedWalkSpeed;
-	}
-	bIsHealing = false;
-	HealingDuration = 0.0f;
-	OnHealingStateChanged.Broadcast();
-
-	// === 仅服务端执行（Dedicated 或 Listen Server） ===
-	const bool bIsServer = GetWorld() && GetWorld()->GetNetMode() != NM_Client;
-	if (bIsServer)
-	{
-		ReplicatedHealth = DamageComponent->CurrentHealth;
-
-		bool bShouldRespawn = true;
-		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
-		{
-			APlayerState* KillerPS = nullptr;
-			if (DamageComponent->LastInstigator)
-			{
-				if (APawn* KillerPawn = Cast<APawn>(DamageComponent->LastInstigator))
-				{
-					KillerPS = KillerPawn->GetPlayerState();
-				}
-			}
-			GM->OnKill(KillerPS, GetPlayerState());
-		}
-		else if (As1mpleFpsGameMode* SPGM = GetWorld()->GetAuthGameMode<As1mpleFpsGameMode>())
-		{
-			// PvE：通知 GameMode 玩家死亡（失败判定），失败则不再复活
-			bShouldRespawn = SPGM->OnPlayerDeath();
-		}
-
-		// 自动复活计时器（PvE 失败后不再复活）
-		if (bShouldRespawn)
-		{
-			GetWorldTimerManager().SetTimer(RespawnHandle, this, &As1mpleFpsCharacter::Respawn, RespawnDelay, false);
-		}
-	}
-
-	// === 仅本地玩家执行（死亡界面 + 输入模式） ===
-	if (IsLocallyControlled())
-	{
-		APlayerController* PC = Cast<APlayerController>(Controller);
-		if (PC)
-		{
-			FInputModeUIOnly InputMode;
-			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-			PC->SetInputMode(InputMode);
-			PC->bShowMouseCursor = true;
-		}
-
-		// Show death screen（PvE 任务已结束 或 PvP 比赛已结束 时不弹死亡界面，交给结算界面替代）
-		As1mpleFpsGameMode* SPGM = GetWorld()->GetAuthGameMode<As1mpleFpsGameMode>();
-		const bool bMissionOver = SPGM && (SPGM->bMissionCompleted || SPGM->bMissionFailed);
-		const bool bMatchOver = GS && GS->bMatchEnded;
-		if (!bMissionOver && !bMatchOver)
-		{
-			if (DeathScreenWidget)
-			{
-				DeathScreenWidget->RemoveFromParent();
-				DeathScreenWidget = nullptr;
-			}
-			if (DeathScreenWidgetClass)
-			{
-				DeathScreenWidget = CreateWidget<UUserWidget>(GetWorld(), DeathScreenWidgetClass);
-				if (DeathScreenWidget)
-				{
-					DeathScreenWidget->AddToViewport(100);
-				}
-			}
-		}
-	}
-
-	// === All clients: disable movement + hide mesh (no ragdoll to avoid mesh stretch)
-	GetCharacterMovement()->DisableMovement();
-	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	GetMesh()->SetVisibility(false);
-	GetMesh()->SetHiddenInGame(true, true);
-	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Mesh1P->SetVisibility(false);
-	Mesh1P->SetHiddenInGame(true, true);
-	FirstPersonCameraComponent->SetActive(false);
-	// 隐藏所有武器
-	for (UTP_WeaponComponent* Weapon : WeaponInventory)
-	{
-		if (Weapon)
-		{
-			Weapon->SetVisibility(false);
-			Weapon->SetHiddenInGame(true, true);
-		}
-	}
-}
-
-void As1mpleFpsCharacter::Respawn()
-{
-	GetWorldTimerManager().ClearTimer(RespawnHandle);
-	GetWorldTimerManager().ClearTimer(HealingHandle);
-
-	bIsDead = false;
-	bIsDeadReplicated = false;
-	bIsHealing = false;
-	HealingDuration = 0.0f;
-	DamageComponent->CurrentHealth = DamageComponent->MaxHealth;
-	ReplicatedHealth = DamageComponent->MaxHealth;
-	OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent->MaxHealth);
-
-	// 完全撤销 DisableMovement()：SetActive + MovementMode + PlaneConstraint
-	// SetMovementMode(MOVE_Walking) 只恢复了 MovementMode 和 Tick，
-	// PlaneConstraint 在 DisableMovement 中被关闭，必须显式恢复。
-	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
-	if (MoveComp)
-	{
-		MoveComp->SetActive(true);
-		MoveComp->SetPlaneConstraintEnabled(true);
-		MoveComp->SetMovementMode(MOVE_Walking);
-	}
-
-	// 随机重生点（仅服务端设置位置）
-	if (GetWorld() && GetWorld()->GetNetMode() != NM_Client)
-	{
-		TArray<AActor*> PlayerStarts;
-		UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), PlayerStarts);
-		if (PlayerStarts.Num() > 0)
-		{
-			int32 RandomIndex = FMath::RandRange(0, PlayerStarts.Num() - 1);
-			SetActorLocation(PlayerStarts[RandomIndex]->GetActorLocation());
-		}
-	}
-
-	// 强制停止所有正在进行的开火/换弹 timer，防止复活后残留
-	if (CurrentWeapon)
-	{
-		CurrentWeapon->StopAutoFire();
-	}
-
-	RespawnVisuals();
-
-	// 确定性刷新客户端血条：服务器直接用权威血量推送，不依赖 OnRep_Health / OnRep_bIsDead 的先后顺序
-	ClientOnRespawn(ReplicatedHealth, DamageComponent->MaxHealth);
-}
-
-void As1mpleFpsCharacter::RespawnVisuals()
-{
-	if (DeathScreenWidget)
-	{
-		DeathScreenWidget->RemoveFromParent();
-		DeathScreenWidget = nullptr;
-	}
-
-	// 先恢复移动组件（必须在恢复碰撞之前，防止卡几何体）
-	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
-	if (MoveComp)
-	{
-		MoveComp->SetActive(true);
-		MoveComp->SetPlaneConstraintEnabled(true);
-		MoveComp->SetMovementMode(MOVE_Walking);
-	}
-
-	GetMesh()->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-	GetMesh()->SetSimulatePhysics(false);
-	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	GetMesh()->SetRelativeLocation(DefaultMeshRelativeLocation);
-	GetMesh()->SetRelativeRotation(DefaultMeshRelativeRotation);
-	GetMesh()->SetOwnerNoSee(true);
-	GetMesh()->SetVisibility(true);
-	GetMesh()->SetHiddenInGame(false, true);
-	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Mesh1P->SetVisibility(true);
-	Mesh1P->SetHiddenInGame(false, true);
-	Mesh1P->SetOnlyOwnerSee(true);
-	FirstPersonCameraComponent->SetActive(true);
-	// 恢复武器可见性（第三人称仍隐藏）
-	if (CurrentWeapon && !bIsThirdPerson)
-	{
-		CurrentWeapon->SetVisibility(true);
-		CurrentWeapon->SetHiddenInGame(false, true);
-	}
-
-	if (IsLocallyControlled())
-	{
-		APlayerController* PC = Cast<APlayerController>(Controller);
-		if (PC)
-		{
-			// 确保复活后控制器仍然 Possess 当前角色
-			if (PC->GetPawn() != this)
-			{
-				
-				PC->Possess(this);
-			}
-			PC->SetInputMode(FInputModeGameOnly());
-			PC->bShowMouseCursor = false;
-		}
-	}
-}
-
-void As1mpleFpsCharacter::HideDeathWidget()
-{
-	if (DeathScreenWidget)
-	{
-		DeathScreenWidget->RemoveFromParent();
-		DeathScreenWidget = nullptr;
-	}
-}
-
-void As1mpleFpsCharacter::OnHealthDamaged(float Damage, AActor* DamageInstigator)
-{
-	
-	ReplicatedHealth = DamageComponent->CurrentHealth;
-	OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent->MaxHealth);
-
-	// 受击屏幕血反馈（红色闪屏，服务器→客户端）
-	if (Damage > 0.0f)
-	{
-		ClientDamageFeedback(0.45f, 0.5f);
-	}
-
-	// 受击打断打药：掉血即收手（OnHealthDamaged 仅服务器触发，需同步通知客户端收起）
-	if (bIsHealing && Damage > 0.0f)
-	{
-		CancelHealing();
-		ClientCancelHealing();
-	}
+	return HealthComponent && HealthComponent->bIsDead;
 }
 
 void As1mpleFpsCharacter::BeginPlay()
@@ -376,12 +121,6 @@ void As1mpleFpsCharacter::BeginPlay()
 	GetMesh()->SetOwnerNoSee(true);
 	Mesh1P->SetOnlyOwnerSee(true);
 
-	// Sync ReplicatedHealth to DamageComponent's actual MaxHealth so initial
-	// replication and OnPossess don't use the stale default (100.0f).
-	ReplicatedHealth = DamageComponent->MaxHealth;
-	// MaxHealth 也复制到客户端，客户端血量上限用权威值而非本地默认值
-	ReplicatedMaxHealth = DamageComponent->MaxHealth;
-
 	// 保存第三人称 Mesh 的默认相对变换，供 RespawnVisuals 还原
 	DefaultMeshRelativeLocation = GetMesh()->GetRelativeLocation();
 	DefaultMeshRelativeRotation = GetMesh()->GetRelativeRotation();
@@ -390,10 +129,9 @@ void As1mpleFpsCharacter::BeginPlay()
 	if (!GrenadeComponent)
 	{
 		GrenadeComponent = FindComponentByClass<UGrenadeComponent>();
-		
 	}
 
-	
+
 }
 
 void As1mpleFpsCharacter::Tick(float DeltaTime)
@@ -444,13 +182,13 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 				this, &As1mpleFpsCharacter::OnThrowGrenade);
 		}
 		// 手雷相关输入 — 直接绑到 GrenadeComponent，Character 不做转发
-		
+
 		if (!GrenadeComponent)
 			GrenadeComponent = FindComponentByClass<UGrenadeComponent>();
-		
+
 		if (GrenadeComponent)
 		{
-			
+
 
 			if (GrenadeComponent->HighThrowAction)
 			{
@@ -480,7 +218,7 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	}
 	else
 	{
-		
+
 	}
 }
 
@@ -580,25 +318,15 @@ void As1mpleFpsCharacter::OnWeaponSlot3()
 
 void As1mpleFpsCharacter::OnUseHealth()
 {
-	// 打药中再按一次 = 取消打药
-	if (bIsHealing)
+	if (HealthComponent)
 	{
-		CancelHealing();
-		if (GetWorld() && GetWorld()->GetNetMode() == NM_Client)
-		{
-			ServerCancelHealing();
-		}
-		return;
-	}
-	if (HealthTypes.Num() > 0 && HealthAmount.Num() > 0 && HealthAmount[0] > 0)
-	{
-		UseHealth(0);
+		HealthComponent->OnUseHealth();
 	}
 }
 
 void As1mpleFpsCharacter::Move(const FInputActionValue& Value)
 {
-	if (bIsDead) return;
+	if (HealthComponent && HealthComponent->bIsDead) return;
 	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
 	if (GS && GS->bIsWarmUp) return;
 
@@ -628,7 +356,7 @@ void As1mpleFpsCharacter::Move(const FInputActionValue& Value)
 
 void As1mpleFpsCharacter::Look(const FInputActionValue& Value)
 {
-	if (bIsDead) return;
+	if (HealthComponent && HealthComponent->bIsDead) return;
 	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
 	if (GS && GS->bIsWarmUp) return;
 
@@ -650,7 +378,7 @@ void As1mpleFpsCharacter::PauseGame()
 		PC->TogglePause();
 	}
 	else {
-		
+
 	}
 }
 
@@ -666,7 +394,7 @@ void As1mpleFpsCharacter::Interact()
 
 	bool bHasOverlap = GetWorld()->OverlapMultiByChannel(Overlap, CameraLocation + CameraForward * 150.f, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(200.f), Params);
 
-	
+
 
 	for (const auto& Hit : Overlap) {
 		AActor* HitActor = Hit.GetActor();
@@ -675,36 +403,36 @@ void As1mpleFpsCharacter::Interact()
 
 		UTP_PickUpComponent *PickUp = HitActor->FindComponentByClass<UTP_PickUpComponent>();
 		if (!PickUp) {
-			
+
 			continue;
 		}
 
 		if (PickUp->bIsAlreadyPickedUp) {
-			
+
 			continue;
 		}
 
 		float Distance = FVector::Dist(CameraLocation, HitActor->GetActorLocation());
 		if (Distance > PickUpDistance) {
-			
+
 			continue;
 		}
 
 		FVector ToTarget = (HitActor->GetActorLocation() - CameraLocation).GetSafeNormal();
 		float Dot = FVector::DotProduct(CameraForward, ToTarget);
 		if (Dot < 0.7f) {
-			
+
 			continue;
 		}
 
 
 		UTP_WeaponComponent* Weapon = HitActor->FindComponentByClass<UTP_WeaponComponent>();
 		if (!Weapon) {
-			
+
 			continue;
 		}
 		if (WeaponInventory.Num() >= MaxWeaponSlots) {
-			
+
 			break;
 		}
 
@@ -714,28 +442,28 @@ void As1mpleFpsCharacter::Interact()
 			// Execute pickup through the shared implementation so that
 			// bIsAlreadyPickedUp, ClientSyncWeaponAmmo, FlushNetDormancy,
 			// and ForceNetUpdate all fire correctly.
-			
+
 			ServerPickUpWeapon_Implementation(HitActor);
 		}
 		else
 		{
 			// Pure client: RPC to server + optimistic local pickup for responsiveness.
 			// If server rejects, ClientUndoPickUp handles rollback.
-			
+
 			ServerPickUpWeapon(HitActor);
 
 			// Optimistic local pickup (server will validate)
 			if (!Weapon->AttachWeapon(this)) {
-				
+
 				break;
 			}
 			WeaponInventory.Add(Weapon);
 			SwitchWeapon(WeaponInventory.Num() - 1);
 			PickUp->OnPickUp.Broadcast(this);
-			
+
 			PickUp->bIsAlreadyPickedUp = true;
 			HitActor->SetActorEnableCollision(false);
-			
+
 		}
 		break;
 	}
@@ -810,6 +538,7 @@ void As1mpleFpsCharacter::ReattachWeaponsForView(bool bToThirdPerson)
 			if (!Weapon) continue;
 			bool bIsActive = (Weapon == CurrentWeapon);
 			Weapon->AttachToComponent(Mesh1P, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), FName(TEXT("GripPoint")));
+			Weapon->ApplyWeaponMeshTransform();
 			Weapon->SetVisibility(bIsActive);
 			Weapon->SetHiddenInGame(false, true);
 			Weapon->SetOnlyOwnerSee(true);
@@ -822,90 +551,14 @@ void As1mpleFpsCharacter::ReattachWeaponsForView(bool bToThirdPerson)
 void As1mpleFpsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(As1mpleFpsCharacter, ReplicatedHealth);
-	DOREPLIFETIME(As1mpleFpsCharacter, ReplicatedMaxHealth);
-	DOREPLIFETIME(As1mpleFpsCharacter, bIsDeadReplicated);
 	DOREPLIFETIME(As1mpleFpsCharacter, CurrentWeapon);
 	DOREPLIFETIME(As1mpleFpsCharacter, WeaponInventory);
 	DOREPLIFETIME(As1mpleFpsCharacter, WeaponIndex);
-	DOREPLIFETIME(As1mpleFpsCharacter, HealthAmount);
-	DOREPLIFETIME(As1mpleFpsCharacter, HealthTypes);
-}
-
-void As1mpleFpsCharacter::OnRep_Health()
-{
-	
-	if (DamageComponent)
-		DamageComponent->CurrentHealth = ReplicatedHealth;
-	OnHealthChanged.Broadcast(ReplicatedHealth, ReplicatedMaxHealth);
-
-	// Update HUD directly from OnRep — this is the only reliable path for
-	// client health display.  The OnHealthChanged delegate may not be bound
-	// if the Blueprint overrides OnPossess without Super, or if OnPossess
-	// ran before the controller's BeginPlay created the HUDWidget.
-	if (IsLocallyControlled())
-	{
-		if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
-		{
-			if (PC->HUDWidget)
-			{
-				PC->HUDWidget->UpdateHealthDisplay(ReplicatedHealth, ReplicatedMaxHealth);
-			}
-		}
-	}
-}
-
-void As1mpleFpsCharacter::OnRep_MaxHealth()
-{
-	if (DamageComponent)
-	{
-		DamageComponent->MaxHealth = ReplicatedMaxHealth;
-	}
-}
-
-void As1mpleFpsCharacter::OnRep_bIsDead()
-{
-	
-	if (bIsDeadReplicated && !bIsDead)
-	{
-		Die();
-	}
-	else if (!bIsDeadReplicated && bIsDead)
-	{
-		// 服务端复活 → 客户端恢复视觉效果
-		// 注意：此时 ReplicatedHealth 可能还是死亡时的近零值（服务器
-		// Respawn() 里的新值复制还没到），直接广播 MaxHealth 避免血条闪0。
-		bIsDead = false;
-
-		// 兜底血量用局部变量，绝不要写 ReplicatedHealth 本身，
-		// 否则会吞掉随后真正复制过来的 OnRep_Health。
-		const float FallbackHealth = ReplicatedMaxHealth;
-
-		if (DamageComponent)
-		{
-			DamageComponent->CurrentHealth = FallbackHealth;
-		}
-
-		OnHealthChanged.Broadcast(FallbackHealth, FallbackHealth);
-		// 镜像 OnRep_Health 的直接 HUD 更新，确保即使委托绑定丢失也能正确刷新血量 UI
-		if (IsLocallyControlled())
-		{
-			if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
-			{
-				if (PC->HUDWidget)
-				{
-					PC->HUDWidget->UpdateHealthDisplay(FallbackHealth, FallbackHealth);
-				}
-			}
-		}
-
-		RespawnVisuals();
-	}
 }
 
 void As1mpleFpsCharacter::OnRep_CurrentWeapon()
 {
-	
+
 	if (IsLocallyControlled())
 	{
 		// 本地玩家：武器可能在客户端没 Equip（纯客户端只发 RPC），OnRep 时补 Equip
@@ -939,7 +592,7 @@ void As1mpleFpsCharacter::OnRep_CurrentWeapon()
 			PreviousClientWeapon->UnEquip();
 		if (CurrentWeapon)
 		{
-			
+
 			CurrentWeapon->SetOwningCharacter(this);
 			CurrentWeapon->Equip();
 		}
@@ -949,7 +602,7 @@ void As1mpleFpsCharacter::OnRep_CurrentWeapon()
 
 void As1mpleFpsCharacter::OnRep_WeaponInventory()
 {
-	
+
 	if (IsLocallyControlled())
 	{
 		// Handle pending purchase (ClientPurchaseComplete arrived before replication)
@@ -957,7 +610,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 		{
 			if (WeaponInventory.IsValidIndex(PendingPurchaseIndex) && WeaponInventory[PendingPurchaseIndex])
 			{
-				
+
 				UTP_WeaponComponent* Weapon = WeaponInventory[PendingPurchaseIndex];
 				Weapon->SetOwningCharacter(this);
 				CurrentWeapon = nullptr;
@@ -968,7 +621,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 			else
 			{
 				// 动态创建的组件可能尚未复制到达，延迟重试
-				
+
 				if (PurchaseRetryCount < 10)
 				{
 					PurchaseRetryCount++;
@@ -978,7 +631,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 				}
 				else
 				{
-					
+
 					PendingPurchaseIndex = -1;
 					PurchaseRetryCount = 0;
 				}
@@ -999,6 +652,7 @@ void As1mpleFpsCharacter::OnRep_WeaponInventory()
 		{
 			Weapon->SetOwningCharacter(this);
 			Weapon->AttachToComponent(Mesh1P, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), FName(TEXT("GripPoint")));
+			Weapon->ApplyWeaponMeshTransform();
 			Weapon->bIsEquipped = false;
 		}
 		Weapon->SetVisibility(false);
@@ -1032,44 +686,16 @@ void As1mpleFpsCharacter::SetActiveWeapon(UTP_WeaponComponent* NewWeapon)
 	}
 }
 
-void As1mpleFpsCharacter::ServerRequestRespawn_Implementation()
-{
-	Respawn();
-}
-
-void As1mpleFpsCharacter::ClientOnRespawn_Implementation(float NewHealth, float NewMaxHealth)
-{
-	// 用服务端传入的权威血量刷新客户端本地状态 + 血条 UI
-	if (DamageComponent)
-	{
-		DamageComponent->CurrentHealth = NewHealth;
-		DamageComponent->MaxHealth = NewMaxHealth;
-	}
-
-	OnHealthChanged.Broadcast(NewHealth, NewMaxHealth);
-
-	if (IsLocallyControlled())
-	{
-		if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
-		{
-			if (PC->HUDWidget)
-			{
-				PC->HUDWidget->UpdateHealthDisplay(NewHealth, NewMaxHealth);
-			}
-		}
-	}
-}
-
 void As1mpleFpsCharacter::ServerPickUpWeapon_Implementation(AActor* HitActor)
 {
-	
+
 	if (!HitActor) return;
 
 	// Guard against double-pickup (race condition between two players)
 	UTP_PickUpComponent* PickUp = HitActor->FindComponentByClass<UTP_PickUpComponent>();
 	if (PickUp && PickUp->bIsAlreadyPickedUp)
 	{
-		
+
 		ClientUndoPickUp(HitActor);
 		return;
 	}
@@ -1110,16 +736,16 @@ void As1mpleFpsCharacter::ServerPickUpWeapon_Implementation(AActor* HitActor)
 	HitActor->SetActorEnableCollision(false);
 	HitActor->FlushNetDormancy();
 	HitActor->ForceNetUpdate();
-	
+
 	MulticastOnPickUp(HitActor);
 	ClientSyncWeaponAmmo(WeaponIndex, PickupWeapon->CurrentAmmo, PickupWeapon->SpareAmmo);
 
-	
+
 }
 
 void As1mpleFpsCharacter::ClientUndoPickUp_Implementation(AActor* HitActor)
 {
-	
+
 	if (!HitActor) return;
 
 	UTP_WeaponComponent* Weapon = HitActor->FindComponentByClass<UTP_WeaponComponent>();
@@ -1150,22 +776,22 @@ void As1mpleFpsCharacter::ClientUndoPickUp_Implementation(AActor* HitActor)
 
 void As1mpleFpsCharacter::MulticastOnPickUp_Implementation(AActor* HitActor)
 {
-	
+
 
 	if (IsLocallyControlled())
 	{
-		
+
 		return;
 	}
 	if (HasAuthority())
 	{
-		
+
 		return;
 	}
 	if (!HitActor) return;
 
 	UTP_PickUpComponent* PickUp = HitActor->FindComponentByClass<UTP_PickUpComponent>();
-	
+
 
 	if (PickUp)
 	{
@@ -1183,13 +809,14 @@ void As1mpleFpsCharacter::MulticastOnPickUp_Implementation(AActor* HitActor)
 	if (Weapon)
 	{
 		USceneComponent* OldParent = Weapon->GetAttachParent();
-		
+
 
 		Weapon->AttachToComponent(GetMesh1P(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), FName(TEXT("GripPoint")));
+		Weapon->ApplyWeaponMeshTransform();
 		Weapon->SetOnlyOwnerSee(true);
 	}
 
-	
+
 }
 
 void As1mpleFpsCharacter::ServerSwitchWeapon_Implementation(int32 Index)
@@ -1241,11 +868,11 @@ void As1mpleFpsCharacter::ServerFireWeapon_Implementation(int32 InWeaponIndex, F
 	if (!Weapon)
 	{
 		Weapon = CurrentWeapon;
-		
+
 	}
 	if (!Weapon)
 	{
-		
+
 		return;
 	}
 	Weapon->ServerFire(SpawnLocation, SpawnRotation);
@@ -1282,7 +909,7 @@ void As1mpleFpsCharacter::ServerReloadWeapon_Implementation(int32 InWeaponIndex)
 	Weapon->SpareAmmo = Weapon->ReplicatedSpareAmmo;
 	Weapon->OnAmmoChanged.Broadcast(Weapon->CurrentAmmo, Weapon->SpareAmmo);
 
-	
+
 }
 
 // ===== 购买系统 =====
@@ -1366,136 +993,10 @@ void As1mpleFpsCharacter::GrantArmor(UArmorData* ArmorDataPtr)
 
 void As1mpleFpsCharacter::GrantHealthItem(UHealthData* HealthDataPtr)
 {
-	if (!HealthDataPtr) return;
-	if (GetWorld() && GetWorld()->GetNetMode() == NM_Client) return;
-
-	int32 Idx = HealthTypes.Find(HealthDataPtr);
-	if (Idx != INDEX_NONE)
+	if (HealthComponent)
 	{
-		HealthAmount[Idx]++;
+		HealthComponent->GrantHealthItem(HealthDataPtr);
 	}
-	else
-	{
-		HealthTypes.Add(HealthDataPtr);
-		HealthAmount.Add(1);
-	}
-	OnHealthItemsChanged.Broadcast();
-}
-
-void As1mpleFpsCharacter::ServerUseHealth_Implementation(int32 HealthIndex)
-{
-	UseHealth(HealthIndex);
-}
-
-void As1mpleFpsCharacter::UseHealth(int32 HealthIndex)
-{
-	if (GetWorld() && GetWorld()->GetNetMode() == NM_Client)
-	{
-		if (bIsHealing) return;
-		if (!HealthTypes.IsValidIndex(HealthIndex) || !HealthAmount.IsValidIndex(HealthIndex) || HealthAmount[HealthIndex] <= 0) return;
-		if (DamageComponent->CurrentHealth >= DamageComponent->MaxHealth) return;
-
-		UHealthData* Data = HealthTypes[HealthIndex];
-		bIsHealing = true;
-		HealingDuration = Data->UsingTime;
-		OnHealingStateChanged.Broadcast();
-
-		// Slow movement while healing
-		SavedWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
-		GetCharacterMovement()->MaxWalkSpeed = SavedWalkSpeed * HealingSpeedMultiplier;
-
-		if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
-		{
-			if (PC->HUDWidget)
-			{
-				PC->HUDWidget->UpdateHealingDisplay(true, Data->UsingTime);
-			}
-		}
-
-		GetWorldTimerManager().SetTimer(HealingHandle, [this]()
-		{
-			GetCharacterMovement()->MaxWalkSpeed = SavedWalkSpeed;
-			bIsHealing = false;
-			HealingDuration = 0.0f;
-			OnHealingStateChanged.Broadcast();
-			if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
-			{
-				if (PC->HUDWidget)
-				{
-					PC->HUDWidget->UpdateHealingDisplay(false, 0.0f);
-				}
-			}
-		}, Data->UsingTime, false);
-
-		ServerUseHealth(HealthIndex);
-		return;
-	}
-	if (bIsHealing) return;
-	if (!HealthTypes.IsValidIndex(HealthIndex) || !HealthAmount.IsValidIndex(HealthIndex) || HealthAmount[HealthIndex] <= 0) return;
-	if (DamageComponent->CurrentHealth >= DamageComponent->MaxHealth) return;
-
-	UHealthData* Data = HealthTypes[HealthIndex];
-	bIsHealing = true;
-	HealingDuration = Data->UsingTime;
-	OnHealingStateChanged.Broadcast();
-
-	// Slow movement while healing (server side)
-	SavedWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
-	GetCharacterMovement()->MaxWalkSpeed = SavedWalkSpeed * HealingSpeedMultiplier;
-
-	GetWorldTimerManager().SetTimer(HealingHandle, [this, HealthIndex, Data]()
-	{
-	if (!HealthAmount.IsValidIndex(HealthIndex)) return;
-		GetCharacterMovement()->MaxWalkSpeed = SavedWalkSpeed;
-		float NewHealth = FMath::Min(DamageComponent->CurrentHealth + Data->HealAmount, DamageComponent->MaxHealth);
-		DamageComponent->CurrentHealth = NewHealth;
-		ReplicatedHealth = NewHealth;
-		OnHealthChanged.Broadcast(ReplicatedHealth, DamageComponent->MaxHealth);
-
-	if (!HealthAmount.IsValidIndex(HealthIndex)) return;
-		HealthAmount[HealthIndex]--;
-		if (HealthAmount[HealthIndex] <= 0)
-		{
-			HealthTypes.RemoveAt(HealthIndex);
-			HealthAmount.RemoveAt(HealthIndex);
-		}
-		bIsHealing = false;
-		HealingDuration = 0.0f;
-		OnHealingStateChanged.Broadcast();
-		OnHealthItemsChanged.Broadcast();
-	}, Data->UsingTime, false);
-}
-
-void As1mpleFpsCharacter::CancelHealing()
-{
-	if (!bIsHealing) return;
-
-	GetWorldTimerManager().ClearTimer(HealingHandle);
-	GetCharacterMovement()->MaxWalkSpeed = SavedWalkSpeed;
-	bIsHealing = false;
-	HealingDuration = 0.0f;
-	OnHealingStateChanged.Broadcast();
-
-	// 本地 HUD 收起进度环（与 UseHealth 客户端分支结束时的处理保持一致）
-	if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Controller))
-	{
-		if (PC->HUDWidget)
-		{
-			PC->HUDWidget->UpdateHealingDisplay(false, 0.0f);
-		}
-	}
-
-	
-}
-
-void As1mpleFpsCharacter::ServerCancelHealing_Implementation()
-{
-	CancelHealing();
-}
-
-void As1mpleFpsCharacter::ClientCancelHealing_Implementation()
-{
-	CancelHealing();
 }
 
 void As1mpleFpsCharacter::ClientApplyFlash_Implementation(float Intensity, float Duration)
@@ -1520,9 +1021,4 @@ void As1mpleFpsCharacter::ClientDamageFeedback_Implementation(float Intensity, f
 		FlashWidget->AddToViewport();
 		FlashWidget->StartFlashing(Intensity, Duration, FLinearColor(0.8f, 0.0f, 0.0f));  // 红色血反馈
 	}
-}
-
-void As1mpleFpsCharacter::OnRep_HealthItems()
-{
-	OnHealthItemsChanged.Broadcast();
 }

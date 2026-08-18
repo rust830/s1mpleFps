@@ -68,11 +68,11 @@ public:
 	void ServerAddGrenade(UGrenadeData* Grenade, int32 Amount);
 	
 	void AddGrenade(UGrenadeData* Grenade, int32 Amount);
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(EditAnywhere,BlueprintReadWrite)
 	bool bIsEquipped = false;
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsLowThrow = false;
-	UPROPERTY(BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsCooking = false;
 	UPROPERTY(BlueprintReadOnly)
 	float CookingElapsed = 0.0f;
