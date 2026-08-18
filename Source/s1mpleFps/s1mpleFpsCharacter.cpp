@@ -20,6 +20,8 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "FlashWidget.h"
 #include "GrenadeComponent.h"
+#include "SettingsSubsystem.h"
+#include "Engine/GameInstance.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -284,11 +286,21 @@ void As1mpleFpsCharacter::Look(const FInputActionValue& Value)
 	// input is a Vector2D
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
 
+	// 鼠标灵敏度（从设置存档读取）
+	float Sensitivity = 1.0f;
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (USettingsSubsystem* Settings = GI->GetSubsystem<USettingsSubsystem>())
+		{
+			Sensitivity = Settings->GetMouseSensitivity();
+		}
+	}
+
 	if (Controller != nullptr)
 	{
 		// add yaw and pitch input to controller
-		AddControllerYawInput(LookAxisVector.X);
-		AddControllerPitchInput(LookAxisVector.Y);
+		AddControllerYawInput(LookAxisVector.X * Sensitivity);
+		AddControllerPitchInput(LookAxisVector.Y * Sensitivity);
 	}
 }
 
