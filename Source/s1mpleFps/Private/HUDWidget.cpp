@@ -7,6 +7,7 @@
 #include "TimerManager.h"
 #include "s1mpleFpsCharacter.h"
 #include "HealthComponent.h"
+#include "WeaponInventoryComponent.h"
 #include "DamageComponent.h"
 #include "ArmorData.h"
 #include "WeaponData.h"
@@ -525,13 +526,13 @@ void UHUDWidget::UpdateEquipmentDisplay()
 	if (WeaponNameText)
 	{
 		WeaponNameText->SetVisibility(ESlateVisibility::Visible);
-		if (Char->CurrentWeapon && Char->CurrentWeapon->WeaponData)
+		if (Char->WeaponInventoryComponent->CurrentWeapon && Char->WeaponInventoryComponent->CurrentWeapon->WeaponData)
 		{
-			const FString& Name = Char->CurrentWeapon->WeaponData->WeaponName;
+			const FString& Name = Char->WeaponInventoryComponent->CurrentWeapon->WeaponData->WeaponName;
 			// Fall back to asset name if WeaponName field is empty (unfilled data asset).
-			WeaponNameText->SetText(FText::FromString(Name.IsEmpty() ? Char->CurrentWeapon->WeaponData->GetName() : Name));
+			WeaponNameText->SetText(FText::FromString(Name.IsEmpty() ? Char->WeaponInventoryComponent->CurrentWeapon->WeaponData->GetName() : Name));
 		}
-		else if (Char->CurrentWeapon && !Char->CurrentWeapon->WeaponData)
+		else if (Char->WeaponInventoryComponent->CurrentWeapon && !Char->WeaponInventoryComponent->CurrentWeapon->WeaponData)
 		{
 			// WeaponData didn't replicate — show something so we know the widget works.
 			WeaponNameText->SetText(FText::FromString(TEXT("(no data)")));

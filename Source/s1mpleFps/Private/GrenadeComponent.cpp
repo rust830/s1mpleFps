@@ -3,6 +3,7 @@
 
 #include "GrenadeComponent.h"
 #include "s1mpleFpsCharacter.h"
+#include "WeaponInventoryComponent.h"
 #include "TP_WeaponComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Camera/CameraComponent.h"
@@ -159,7 +160,7 @@ void UGrenadeComponent::EquippedGrenade()
 	if (!OwnerCharacter || OwnerCharacter->IsDead())return;
 
 	bIsEquipped = true;
-	if (OwnerCharacter->CurrentWeapon)OwnerCharacter->CurrentWeapon->UnEquip();
+	if (OwnerCharacter->WeaponInventoryComponent->CurrentWeapon)OwnerCharacter->WeaponInventoryComponent->CurrentWeapon->UnEquip();
 
 	AddGrenadeMappingContext();
 	UGrenadeData* Data = GetCurrnetGrenade();
@@ -180,8 +181,8 @@ void UGrenadeComponent::UnequippedGrenade()
 	HideHeldGrenade();
 	RemoveGrenadeMappingContext();
 
-	if (OwnerCharacter && OwnerCharacter->CurrentWeapon)
-		OwnerCharacter->CurrentWeapon->Equip();
+	if (OwnerCharacter && OwnerCharacter->WeaponInventoryComponent->CurrentWeapon)
+		OwnerCharacter->WeaponInventoryComponent->CurrentWeapon->Equip();
 
 	OnGrenadeEquipped.Broadcast();
 	OnCookingProgressChanged.Broadcast(0.0f);

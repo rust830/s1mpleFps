@@ -27,6 +27,7 @@ class UHealthData;
 class UTP_WeaponComponent;
 class UGrenadeComponent;
 class UHealthComponent;
+class UWeaponInventoryComponent;
 
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -57,6 +58,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))
 	UHealthComponent* HealthComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))
+	UWeaponInventoryComponent* WeaponInventoryComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI", meta = (AllowPrivateAccess = "true"))
 	UAIPerceptionStimuliSourceComponent* StimuliSource;
@@ -115,8 +119,6 @@ public:
 
 	void PlayHitMarker(bool bIsEnemy);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
-	float PickUpDistance = 300.0f;
 	void Interact();
 
 	void StartCrouch() {
@@ -152,41 +154,6 @@ public:
 
 	bool IsDead() const;
 
-	UFUNCTION(Server,Reliable)
-	void ServerPickUpWeapon(AActor* HitActor);
-	UFUNCTION(Client,Reliable)
-	void ClientUndoPickUp(AActor* HitActor);
-	UFUNCTION(NetMulticast, Reliable)
-	void MulticastOnPickUp(AActor* HitActor);
-	UFUNCTION(Server,Reliable)
-	void ServerSwitchWeapon(int32 Index);
-	UFUNCTION(Server,Reliable)
-	void ServerPreviousWeapon();
-	UFUNCTION(Server,Reliable)
-	void ServerNextWeapon();
-	UFUNCTION(Client,Reliable)
-	void ClientSyncWeaponAmmo(int32 InWeaponIndex, int32 InCurrentAmmo, int32 InSpareAmmo);
-	UFUNCTION(Server,Reliable)
-	void ServerFireWeapon(int32 InWeaponIndex, FVector SpawnLocation, FRotator SpawnRotation);
-	UFUNCTION(Server,Reliable)
-	void ServerReloadWeapon(int32 InWeaponIndex);
-
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_CurrentWeapon)
-	UTP_WeaponComponent* CurrentWeapon;
-	UFUNCTION()
-	void OnRep_CurrentWeapon();
-	void SetActiveWeapon(UTP_WeaponComponent* NewWeapon);
-	UPROPERTY()
-	UTP_WeaponComponent* PreviousClientWeapon = nullptr;
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_WeaponInventory)
-	TArray<UTP_WeaponComponent*> WeaponInventory;
-	UPROPERTY(BlueprintReadOnly, Replicated)
-	int32 WeaponIndex = 0;
-	UFUNCTION()
-	void OnRep_WeaponInventory();
-	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Weapon")
-	int32 MaxWeaponSlots = 3;
-	void SwitchWeapon(int32 Index);
 	void NextWeapon();
 	void PreviousWeapon();
 
@@ -228,11 +195,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson")
 	bool bHideWeaponFromOthers = true;
 	void ReattachWeaponsForView(bool bToThirdPerson);
-	int32 GrantWeapon(TSubclassOf<UTP_WeaponComponent> WeaponClass, UWeaponData* WeaponDataPtr = nullptr);
-	int32 PendingPurchaseIndex = -1;
-	FTimerHandle PurchaseRetryHandle;
-	int32 PurchaseRetryCount = 0;
-	void RemoveWeaponSlot(int32 RemoveIndex);
 
 	void GrantArmor(UArmorData* ArmorData);
 	

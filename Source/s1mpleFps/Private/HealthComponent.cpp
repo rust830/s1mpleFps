@@ -2,6 +2,7 @@
 
 #include "HealthComponent.h"
 #include "s1mpleFpsCharacter.h"
+#include "WeaponInventoryComponent.h"
 #include "DamageComponent.h"
 #include "HealthData.h"
 #include "TP_WeaponComponent.h"
@@ -97,10 +98,10 @@ void UHealthComponent::Die()
 	}
 
 	// 停止开火/换弹，防止 Timer 继续循环
-	if (Character->CurrentWeapon)
+	if (Character->WeaponInventoryComponent->CurrentWeapon)
 	{
-		Character->CurrentWeapon->StopAutoFire();
-		Character->CurrentWeapon->CancelReload();
+		Character->WeaponInventoryComponent->CurrentWeapon->StopAutoFire();
+		Character->WeaponInventoryComponent->CurrentWeapon->CancelReload();
 	}
 
 	// 取消治疗计时器，防止死亡时浪费药品
@@ -189,7 +190,7 @@ void UHealthComponent::Die()
 	Character->Mesh1P->SetHiddenInGame(true, true);
 	Character->FirstPersonCameraComponent->SetActive(false);
 	// 隐藏所有武器
-	for (UTP_WeaponComponent* Weapon : Character->WeaponInventory)
+	for (UTP_WeaponComponent* Weapon : Character->WeaponInventoryComponent->WeaponInventory)
 	{
 		if (Weapon)
 		{
@@ -239,9 +240,9 @@ void UHealthComponent::Respawn()
 	}
 
 	// 强制停止所有正在进行的开火/换弹 timer，防止复活后残留
-	if (Character->CurrentWeapon)
+	if (Character->WeaponInventoryComponent->CurrentWeapon)
 	{
-		Character->CurrentWeapon->StopAutoFire();
+		Character->WeaponInventoryComponent->CurrentWeapon->StopAutoFire();
 	}
 
 	RespawnVisuals();
@@ -286,10 +287,10 @@ void UHealthComponent::RespawnVisuals()
 	Character->Mesh1P->SetOnlyOwnerSee(true);
 	Character->FirstPersonCameraComponent->SetActive(true);
 	// 恢复武器可见性（第三人称仍隐藏）
-	if (Character->CurrentWeapon && !Character->bIsThirdPerson)
+	if (Character->WeaponInventoryComponent->CurrentWeapon && !Character->bIsThirdPerson)
 	{
-		Character->CurrentWeapon->SetVisibility(true);
-		Character->CurrentWeapon->SetHiddenInGame(false, true);
+		Character->WeaponInventoryComponent->CurrentWeapon->SetVisibility(true);
+		Character->WeaponInventoryComponent->CurrentWeapon->SetHiddenInGame(false, true);
 	}
 
 	if (Character->IsLocallyControlled())

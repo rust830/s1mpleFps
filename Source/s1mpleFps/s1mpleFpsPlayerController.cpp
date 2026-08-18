@@ -6,6 +6,7 @@
 #include "HUDWidget.h"
 #include "s1mpleFpsCharacter.h"
 #include "HealthComponent.h"
+#include "WeaponInventoryComponent.h"
 #include "GrenadeComponent.h"
 #include "DamageComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -203,7 +204,7 @@ void As1mpleFpsPlayerController::ServerPurchaseItem_Implementation(int32 ItemInd
 		TSubclassOf<UTP_WeaponComponent> EffectiveClass = Item.WeaponClass;
 		if (!EffectiveClass)
 			EffectiveClass = UTP_WeaponComponent::StaticClass();
-		int32 SlotIndex = PC->GrantWeapon(EffectiveClass, Item.WeaponData);
+		int32 SlotIndex = PC->WeaponInventoryComponent->GrantWeapon(EffectiveClass, Item.WeaponData);
 		if (SlotIndex >= 0)
 			ClientPurchaseComplete(SlotIndex);
 	}
@@ -236,17 +237,17 @@ void As1mpleFpsPlayerController::ClientPurchaseComplete_Implementation(int32 Wea
 
 	
 
-	if (Char->WeaponInventory.IsValidIndex(WeaponSlotIndex) && Char->WeaponInventory[WeaponSlotIndex])
+	if (Char->WeaponInventoryComponent->WeaponInventory.IsValidIndex(WeaponSlotIndex) && Char->WeaponInventoryComponent->WeaponInventory[WeaponSlotIndex])
 	{
-		UTP_WeaponComponent* Weapon = Char->WeaponInventory[WeaponSlotIndex];
+		UTP_WeaponComponent* Weapon = Char->WeaponInventoryComponent->WeaponInventory[WeaponSlotIndex];
 		Weapon->SetOwningCharacter(Char);
-		Char->CurrentWeapon = nullptr;
-		Char->SwitchWeapon(WeaponSlotIndex);
+		Char->WeaponInventoryComponent->CurrentWeapon = nullptr;
+		Char->WeaponInventoryComponent->SwitchWeapon(WeaponSlotIndex);
 	}
 	else
 	{
 		
-		Char->PendingPurchaseIndex = WeaponSlotIndex;
+		Char->WeaponInventoryComponent->PendingPurchaseIndex = WeaponSlotIndex;
 	}
 }
 
@@ -344,10 +345,10 @@ void As1mpleFpsPlayerController::OnPossess(APawn* InPawn)
 		// Without this, the text stays hidden until the first SwitchWeapon call.
 		if (HUDWidget)
 		{
-			if (Char->CurrentWeapon)
+			if (Char->WeaponInventoryComponent->CurrentWeapon)
 			{
 				
-				HUDWidget->BindToWeapon(Char->CurrentWeapon);
+				HUDWidget->BindToWeapon(Char->WeaponInventoryComponent->CurrentWeapon);
 			}
 			else
 			{

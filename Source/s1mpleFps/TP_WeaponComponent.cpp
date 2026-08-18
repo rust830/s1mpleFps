@@ -3,6 +3,7 @@
 
 #include "TP_WeaponComponent.h"
 #include "s1mpleFpsCharacter.h"
+#include "WeaponInventoryComponent.h"
 #include "s1mpleFpsProjectile.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/CameraComponent.h"
@@ -113,7 +114,7 @@ void UTP_WeaponComponent::ServerReload_Implementation()
 
 void UTP_WeaponComponent::StartAiming()
 {
-	if (!Character || Character->CurrentWeapon != this) return;
+	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 	bIsAiming = true;
 	TargetFOV = ADSFOV;
 	bHasValidADSTransform = false;
@@ -151,7 +152,7 @@ void UTP_WeaponComponent::StartAiming()
 
 void UTP_WeaponComponent::EndAiming()
 {
-	if (!Character || Character->CurrentWeapon != this) return;
+	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 	bIsAiming = false;
 	TargetFOV = DefaultFOV;
 	if (Character->bIsThirdPerson) {
@@ -164,7 +165,7 @@ void UTP_WeaponComponent::EndAiming()
 
 void UTP_WeaponComponent::ToggleAiming()
 {
-	if (!Character || Character->CurrentWeapon != this) return;
+	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 	if (bIsAiming) {
 		EndAiming();
 	}
@@ -309,7 +310,7 @@ void UTP_WeaponComponent::UnEquip()
 
 void UTP_WeaponComponent::Reload()
 {
-	if (!Character || Character->CurrentWeapon != this) return;
+	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 	if (bIsReloading || !WeaponData) return;
 	if (CurrentAmmo >= WeaponData->MaxProjectile) return;
 	if (SpareAmmo <= 0) return;
@@ -334,7 +335,7 @@ void UTP_WeaponComponent::Reload()
 		CurrentAmmo += PendingReloadAmount;
 		SpareAmmo -= PendingReloadAmount;
 		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
-		Character->ServerReloadWeapon(Character->WeaponIndex);
+		Character->WeaponInventoryComponent->ServerReloadWeapon(Character->WeaponInventoryComponent->WeaponIndex);
 	}
 
 	GetWorld()->GetTimerManager().SetTimer(ReloadTimerHandle, this, &UTP_WeaponComponent::FinishReload, WeaponData->ReloadTime, false);
@@ -372,7 +373,7 @@ bool UTP_WeaponComponent::bCanFire()
 
 void UTP_WeaponComponent::StartSingleFire()
 {
-	if (!Character || Character->CurrentWeapon != this)
+	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this)
 	{
 		
 		return;
@@ -415,7 +416,7 @@ void UTP_WeaponComponent::StartSingleFire()
 			MulticastFireEffect(SpawnLocation, SpawnRotation);
 		}
 		else {
-			Character->ServerFireWeapon(Character->WeaponIndex, SpawnLocation, SpawnRotation);
+			Character->WeaponInventoryComponent->ServerFireWeapon(Character->WeaponInventoryComponent->WeaponIndex, SpawnLocation, SpawnRotation);
 		}
 		CurrentAmmo -= 1;
 		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
@@ -574,7 +575,7 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 void UTP_WeaponComponent::StartFire()
 {
 	
-	if (!Character || Character->CurrentWeapon != this)
+	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this)
 	{
 		
 		return;
@@ -623,7 +624,7 @@ void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 
 	if (!WeaponData) return;
 	if (!Character) return;
-	if (Character->CurrentWeapon != this) return;
+	if (Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 	if (Character->IsDead()) return;
 
 	ApplyAndDecayRecoil(DeltaTime);
@@ -851,7 +852,7 @@ void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (IsValid(Character))
 	{
-		Character->CurrentWeapon = nullptr;
+		Character->WeaponInventoryComponent->CurrentWeapon = nullptr;
 
 		if (APlayerController* PlayerController = Cast<APlayerController>(Character->GetController()))
 		{
