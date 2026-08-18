@@ -18,6 +18,13 @@ USettingsSubsystem* USettingsSubsystem::GetSettingsSubsystem(const UObject* Worl
 void USettingsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+
+	// 硬编码音频资产路径（UGameInstanceSubsystem 的软引用在编辑器里不好配，直接指向固定路径）
+	MasterSoundMix = TSoftObjectPtr<USoundMix>(FSoftObjectPath(TEXT("/Game/FirstPerson/Audio/SM_Master")));
+	MasterSoundClass = TSoftObjectPtr<USoundClass>(FSoftObjectPath(TEXT("/Game/FirstPerson/Audio/SC_Master")));
+	SFXSoundClass = TSoftObjectPtr<USoundClass>(FSoftObjectPath(TEXT("/Game/FirstPerson/Audio/SC_SFX")));
+	UISoundClass = TSoftObjectPtr<USoundClass>(FSoftObjectPath(TEXT("/Game/FirstPerson/Audio/SC_UI")));
+
 	LoadSettings();
 }
 
