@@ -13,13 +13,14 @@ class S1MPLEFPS_API USettingsSaveGame : public USaveGame
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	// 存档数据由 USettingsSubsystem 内部读写，不暴露给蓝图（避免和 Subsystem 的同名函数冲突）
+	UPROPERTY(EditAnywhere, Category = "Settings")
 	float MouseSensitivity = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	UPROPERTY(EditAnywhere, Category = "Settings")
 	float MasterVolume = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	UPROPERTY(EditAnywhere, Category = "Settings")
 	float SFXVolume = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	UPROPERTY(EditAnywhere, Category = "Settings")
 	float UIVolume = 1.0f;
 };

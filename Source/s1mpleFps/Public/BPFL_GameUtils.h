@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "InputCoreTypes.h"
 #include "BPFL_GameUtils.generated.h"
 
 UCLASS()
@@ -20,4 +21,8 @@ public:
 	static void HostGame(UObject* WorldContext, const FString& MapName);
 	UFUNCTION(BlueprintCallable)
 	static void JoinGame(UObject* WorldContext, const FString& IPAddress);
+
+	// Player Mappable Input 便捷改键：MappingName = InputAction 的 Player Mappable Display Name
+	UFUNCTION(BlueprintCallable, Category = "Input|Player Mappable", meta = (WorldContext = "WorldContext"))
+	static bool RemapKey(UObject* WorldContext, FName MappingName, FKey NewKey, FString& OutError);
 };

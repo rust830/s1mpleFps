@@ -5,6 +5,10 @@
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
+#include "Engine/GameInstance.h"
+#include "Engine/LocalPlayer.h"
+#include "EnhancedInputSubsystems.h"
+#include "UserSettings/EnhancedInputUserSettings.h"
 
 void UBPFL_GameUtils::RestartGame(UObject* WorldContext)
 {
@@ -47,4 +51,40 @@ void UBPFL_GameUtils::JoinGame(UObject* WorldContext, const FString& IPAddress)
 	{
 		PC->ClientTravel(IPAddress, ETravelType::TRAVEL_Absolute);
 	}
+}
+
+// 从 WorldContext 取 Enhanced Input User Settings（Player Mappable Input）
+static UEnhancedInputUserSettings* GetUserSettingsForContext(UObject* WorldContext)
+{
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::LogAndReturnNull);
+	UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
+	ULocalPlayer* LP = GI ? GI->GetFirstGamePlayer() : nullptr;
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = LP ? ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LP) : nullptr;
+	return Subsystem ? Subsystem->GetUserSettings() : nullptr;
+}
+
+bool UBPFL_GameUtils::RemapKey(UObject* WorldContext, FName MappingName, FKey NewKey, FString& OutError)
+{
+	OutError = TEXT("");
+	UEnhancedInputUserSettings* Settings = GetUserSettingsForContext(WorldContext);
+	if (!Settings)
+	{
+		OutError = TEXT("无法获取 Enhanced Input User Settings");
+		return false;
+	}
+
+	FMapPlayerKeyArgs Args;
+	Args.MappingName = MappingName;
+	Args.NewKey = NewKey;
+	Args.bCreateMatchingSlotIfNeeded = true;
+
+	FGameplayTagContainer FailureReason;
+	Settings->MapPlayerKey(Args, FailureReason);
+
+	if (FailureReason.Num() > 0)
+	{
+		OutError = FString::Printf(TEXT("改键失败，错误标签 %d 个"), FailureReason.Num());
+		return false;
+	}
+	return true;
 }
