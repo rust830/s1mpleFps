@@ -45,14 +45,7 @@ void As1mpleFpsPvPGameMode::OnKill(APlayerState* KillerPS, APlayerState* VictimP
 int32 As1mpleFpsPvPGameMode::CalculateKillReward(As1mpleFpsPlayerState* Killer) const
 {
 	if (!Killer) return KillRewardBase;
-
-	int32 Reward = KillRewardBase;
-	// 连杀奖励：当前连杀数 × 每次加成
-	Reward += Killer->KillStreak * KillStreakBonus;
-	// 连死补偿：死亡多把后终于拿人头，额外补偿
-	Reward += Killer->DeathStreak * DeathStreakBonusPerLevel;
-
-	return Reward;
+	return ComputeKillReward(KillRewardBase, KillStreakBonus, DeathStreakBonusPerLevel, Killer->KillStreak, Killer->DeathStreak);
 }
 
 void As1mpleFpsPvPGameMode::BeginPlay()

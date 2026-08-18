@@ -57,6 +57,25 @@ public:
 			return MaxReduction;
 		}
 
+		// === 纯函数伤害计算（抽出来供自动化测试，不依赖 World/NetMode） ===
+		static float ComputeZoneDamage(float BaseDamage, float HitZoneMul)
+		{
+			return BaseDamage * HitZoneMul;
+		}
+
+		static float ComputeFinalDamage(float ZoneDamage, float Reduction, float Penetration)
+		{
+			// 有效减伤 = clamp(护甲减伤 - 穿透, 0, 1)，防止 >100% 减伤或负穿透导致负伤害
+			const float EffectiveReduction = FMath::Clamp(Reduction - Penetration, 0.0f, 1.0f);
+			return ZoneDamage * (1.0f - EffectiveReduction);
+		}
+
+		static float ComputeActualDamage(float FinalDamage, float CurrentHealth)
+		{
+			// 扣血不能超过剩余血量
+			return FMath::Min(FinalDamage, CurrentHealth);
+		}
+
 		// 核心伤害计算
 		float ApplyDamage(FName HitBone, float BaseDamage, float Penetration,
 			AActor* Instigator = nullptr, FVector HitLocation = FVector::ZeroVector)
@@ -73,15 +92,13 @@ public:
 			// 1. HitZone 伤害倍率
 			float HitX = HitZoneData ? HitZoneData->GetMul(HitBone) : 1.0f;
 			// 2. 部位伤害
-			float ZoneDamage = BaseDamage * HitX;
+			float ZoneDamage = ComputeZoneDamage(BaseDamage, HitX);
 			// 3. 护甲减伤
 			float Reduction = GetReductionForBones(HitBone);
-			// 4. 有效减伤 = 护甲减伤 - 穿透
-			float EffectiveReduction = FMath::Max(0.0f, Reduction - Penetration);
-			// 5. 最终伤害 = 部位伤害 × (1 - 有效减伤)
-			float FinalDamage = ZoneDamage * (1.0f - EffectiveReduction);
-			// 6. 扣血，不能扣超过剩余血量
-			float ActualDamage = (CurrentHealth - FinalDamage > 0) ? FinalDamage : CurrentHealth;
+			// 4. 最终伤害（内部含「减伤 - 穿透」的 0~1 clamp）
+			float FinalDamage = ComputeFinalDamage(ZoneDamage, Reduction, Penetration);
+			// 5. 扣血，不能扣超过剩余血量
+			float ActualDamage = ComputeActualDamage(FinalDamage, CurrentHealth);
 			CurrentHealth -= ActualDamage;
 			
 			OnDamaged.Broadcast(ActualDamage, Instigator);

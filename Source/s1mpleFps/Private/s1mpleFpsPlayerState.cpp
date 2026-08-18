@@ -44,9 +44,12 @@ void As1mpleFpsPlayerState::AddKill()
 	OnScoreChanged.Broadcast(Kills, Deaths, Scores);
 
 	// 权威端：击杀写入后立即判定胜负（事件驱动，避免 GameMode 每帧轮询）
-	if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
+	if (GetWorld())
 	{
-		GM->CheckWinnerCondition(this);
+		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
+		{
+			GM->CheckWinnerCondition(this);
+		}
 	}
 }
 

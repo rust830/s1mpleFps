@@ -43,6 +43,12 @@ public:
 
 	int32 CalculateKillReward(As1mpleFpsPlayerState* Killer) const;
 
+	// 击杀奖励纯函数（供自动化测试，不依赖 Actor/GameMode）
+	static int32 ComputeKillReward(int32 Base, int32 StreakBonus, int32 DeathStreakBonusPerLevel, int32 KillStreak, int32 DeathStreak)
+	{
+		return Base + KillStreak * StreakBonus + DeathStreak * DeathStreakBonusPerLevel;
+	}
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float WarmUpDuration = 3.0f;
 
