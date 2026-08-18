@@ -38,6 +38,7 @@ void As1mpleFpsCharacter::OnThrowGrenade(const FInputActionValue& Value)
 As1mpleFpsCharacter::As1mpleFpsCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	NetUpdateFrequency = 30.0f; // 网络带宽优化：角色默认 100 → 30
 
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);

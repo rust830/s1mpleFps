@@ -212,7 +212,7 @@ public:
 
 	UFUNCTION(Server,Reliable)
 	void ServerFire(FVector SpawnLocation, FRotator SpawnRotation);
-	UFUNCTION(NetMulticast,Reliable)
+	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastFireEffect(FVector SpawnLocation, FRotator SpawnRotation);
 	void PerformFire(FVector SpawnLocation, FRotator SpawnRotation);
 

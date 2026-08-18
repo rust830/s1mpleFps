@@ -17,6 +17,10 @@ As1mpleFpsProjectile::As1mpleFpsProjectile()
 {    
 	bReplicates = true;
 	bNetTemporary = true;
+	// 网络带宽优化：子弹短命且命中判定在服务端，降低复制频率与相关距离
+	NetUpdateFrequency = 1.0f;
+	bAlwaysRelevant = false;
+	NetCullDistanceSquared = 5000.0f * 5000.0f; // 约 50m
 	// Use a sphere as a simple collision representation
 	CollisionComp = CreateDefaultSubobject<USphereComponent>(TEXT("SphereComp"));
 	CollisionComp->InitSphereRadius(5.0f);

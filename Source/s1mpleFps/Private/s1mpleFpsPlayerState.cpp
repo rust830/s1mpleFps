@@ -12,8 +12,8 @@ void As1mpleFpsPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(As1mpleFpsPlayerState, Deaths);
 	DOREPLIFETIME(As1mpleFpsPlayerState, Scores);
 	DOREPLIFETIME(As1mpleFpsPlayerState, Money);
-	DOREPLIFETIME(As1mpleFpsPlayerState, KillStreak);
-	DOREPLIFETIME(As1mpleFpsPlayerState, DeathStreak);
+	DOREPLIFETIME_CONDITION(As1mpleFpsPlayerState, KillStreak, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(As1mpleFpsPlayerState, DeathStreak, COND_OwnerOnly);
 	DOREPLIFETIME(As1mpleFpsPlayerState, TeamId);
 }
 

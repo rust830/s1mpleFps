@@ -14,6 +14,10 @@ AGrenadeProjectile::AGrenadeProjectile()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
+	// 网络带宽优化：手雷降低复制频率与相关距离
+	NetUpdateFrequency = 1.0f;
+	bAlwaysRelevant = false;
+	NetCullDistanceSquared = 5000.0f * 5000.0f; // 约 50m
 	CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
 	CollisionComponent->InitSphereRadius(5.0f);
 	RootComponent = CollisionComponent;

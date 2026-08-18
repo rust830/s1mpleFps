@@ -64,8 +64,8 @@ void UHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(UHealthComponent, ReplicatedHealth);
 	DOREPLIFETIME(UHealthComponent, ReplicatedMaxHealth);
 	DOREPLIFETIME(UHealthComponent, bIsDeadReplicated);
-	DOREPLIFETIME(UHealthComponent, HealthAmount);
-	DOREPLIFETIME(UHealthComponent, HealthTypes);
+	DOREPLIFETIME_CONDITION(UHealthComponent, HealthAmount, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UHealthComponent, HealthTypes, COND_OwnerOnly);
 }
 
 void UHealthComponent::Die()

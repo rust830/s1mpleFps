@@ -30,7 +30,7 @@ void UWeaponInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimePrope
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UWeaponInventoryComponent, CurrentWeapon);
-	DOREPLIFETIME(UWeaponInventoryComponent, WeaponInventory);
+	DOREPLIFETIME_CONDITION(UWeaponInventoryComponent, WeaponInventory, COND_OwnerOnly);
 	DOREPLIFETIME(UWeaponInventoryComponent, WeaponIndex);
 }
 
