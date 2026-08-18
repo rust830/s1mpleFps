@@ -5,8 +5,15 @@
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundMix.h"
 #include "Sound/SoundClass.h"
+#include "Engine/GameInstance.h"
 
 static const FString SettingsSlotName = TEXT("PlayerSettings");
+
+USettingsSubsystem* USettingsSubsystem::GetSettingsSubsystem(const UObject* WorldContextObject)
+{
+	UGameInstance* GI = UGameplayStatics::GetGameInstance(WorldContextObject);
+	return GI ? GI->GetSubsystem<USettingsSubsystem>() : nullptr;
+}
 
 void USettingsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {

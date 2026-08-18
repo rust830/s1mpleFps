@@ -11,12 +11,16 @@ class USoundMix;
 class USoundClass;
 
 // 全局设置子系统：统一管理鼠标灵敏度 + 主/音效/UI 音量，读写 USettingsSaveGame 存档
-UCLASS()
+UCLASS(BlueprintType)
 class S1MPLEFPS_API USettingsSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
 
 public:
+	// 便捷获取（供蓝图调用）：直接返回子系统实例
+	UFUNCTION(BlueprintCallable, Category = "Settings", meta = (WorldContext = "WorldContextObject"))
+	static USettingsSubsystem* GetSettingsSubsystem(const UObject* WorldContextObject);
+
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
