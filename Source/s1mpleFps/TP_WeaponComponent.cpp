@@ -211,6 +211,11 @@ void UTP_WeaponComponent::Equip()
 		if (!AimAction) AimAction = WeaponData->WeaponAimAction;
 	}
 
+	// 记住本次实际使用的映射上下文，供 UnEquip 精确移除。
+	// 否则 FireMappingContext 为空时（服务端/主机 OnRep_WeaponData 不触发、不会给它赋值），
+	// Equip 加了 WeaponData 的映射上下文，UnEquip 却移除不了，导致武器映射上下文泄漏、武器输入残留。
+	FireMappingContext = EffectiveMappingContext;
+
 	if (!Character || !Character->GetController())
 	{
 		
