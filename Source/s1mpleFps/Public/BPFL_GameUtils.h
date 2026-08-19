@@ -25,4 +25,8 @@ public:
 	// Player Mappable Input 便捷改键：MappingName = InputAction 的 Player Mappable Display Name
 	UFUNCTION(BlueprintCallable, Category = "Input|Player Mappable", meta = (WorldContext = "WorldContext"))
 	static bool RemapKey(UObject* WorldContext, FName MappingName, FKey NewKey, FString& OutError);
+
+	// 查询某个映射当前绑定的键（供 InputKeySelector 显示当前键位）
+	UFUNCTION(BlueprintCallable, Category = "Input|Player Mappable", meta = (WorldContext = "WorldContext"))
+	static bool GetMappedKey(UObject* WorldContext, FName MappingName, FKey& OutKey);
 };

@@ -8,6 +8,8 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EnhancedInputComponent.h"
 #include "InputActionValue.h"
@@ -15,6 +17,8 @@
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "s1mpleFpsPlayerController.h"
+#include "HUDWidget.h"
+#include "Kismet/GameplayStatics.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "s1mpleFpsGameState.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -119,6 +123,12 @@ void As1mpleFpsCharacter::BeginPlay()
 		GrenadeComponent = FindComponentByClass<UGrenadeComponent>();
 	}
 
+	// 热身登场动画：开局热身阶段，第三人称模型播一次登场 montage（服务器广播到所有端）
+	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
+	if (GS && GS->bIsWarmUp && ThirdPersonIntroMontage && HasAuthority())
+	{
+		MulticastPlayThirdPersonMontage(ThirdPersonIntroMontage);
+	}
 
 }
 
@@ -162,6 +172,11 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 			&As1mpleFpsCharacter::ToggleView);
 		EnhancedInputComponent->BindAction(UseHealthAction, ETriggerEvent::Started, this,
 			&As1mpleFpsCharacter::OnUseHealth);
+		if (TauntAction)
+		{
+			EnhancedInputComponent->BindAction(TauntAction, ETriggerEvent::Started, this,
+				&As1mpleFpsCharacter::OnTaunt);
+		}
 
 
 		if (GrenadeThrowAction)
@@ -328,9 +343,16 @@ void As1mpleFpsCharacter::Reload()
 		WeaponInventoryComponent->Reload();
 }
 
-void As1mpleFpsCharacter::PlayHitMarker(bool bIsEnemy)
+void As1mpleFpsCharacter::PlayHitMarker_Implementation(bool bIsEnemy)
 {
-	ShowHitMarket(bIsEnemy);
+	// 命中标记统一显示在 HUD（UHUDWidget::PlayHitMarker 负责淡入淡出 + 敌人红/墙白配色）
+	if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(GetController()))
+	{
+		if (PC->HUDWidget)
+		{
+			PC->HUDWidget->PlayHitMarker(bIsEnemy);
+		}
+	}
 }
 
 void As1mpleFpsCharacter::ToggleView()
@@ -435,4 +457,101 @@ void As1mpleFpsCharacter::ClientDamageFeedback_Implementation(float Intensity, f
 		FlashWidget->AddToViewport();
 		FlashWidget->StartFlashing(Intensity, Duration, FLinearColor(0.8f, 0.0f, 0.0f));  // 红色血反馈
 	}
+}
+
+void As1mpleFpsCharacter::PlayThirdPersonMontage(UAnimMontage* Montage)
+{
+	if (!IsValid(Montage)) return;
+	UAnimInstance* AnimInst = GetMesh()->GetAnimInstance();
+	if (!AnimInst)
+	{
+		UE_LOG(LogTemplateCharacter, Warning, TEXT("[ThirdPersonAnim] %s GetMesh()->GetAnimInstance() 为空，montage 无法播放"), *GetName());
+		return;
+	}
+	UE_LOG(LogTemplateCharacter, Log, TEXT("[ThirdPersonAnim] %s 播放 montage %s"), *GetName(), *Montage->GetName());
+	AnimInst->Montage_Play(Montage, 1.0f, EMontagePlayReturnType::MontageLength, 0.0f, false);
+}
+
+void As1mpleFpsCharacter::MulticastThirdPersonFire_Implementation(UAnimMontage* FireMontage)
+{
+	// 第一人称时本地玩家看的是手臂，不播自己身体；第三人称时本地玩家也要看到
+	if (IsLocallyControlled() && !bIsThirdPerson) return;
+	PlayThirdPersonMontage(FireMontage);
+}
+
+void As1mpleFpsCharacter::MulticastMuzzleFlash_Implementation(FVector SpawnLocation, FRotator SpawnRotation, UParticleSystem* MuzzleFlash, USoundBase* FireSound)
+{
+	// 本地玩家在 StartSingleFire 里已经直接 spawn 了枪口火焰，这里只给其他端看
+	if (IsLocallyControlled()) return;
+
+	// 优先用第三人称骨骼的 muzzle 插槽对齐枪口（需在第三人称骨骼上加 muzzle 插槽）；没有则退回传入位置
+	FVector FlashLocation = SpawnLocation;
+	if (GetMesh() && GetMesh()->DoesSocketExist(FName("muzzle")))
+	{
+		FlashLocation = GetMesh()->GetSocketLocation(FName("muzzle"));
+	}
+
+	if (MuzzleFlash && GetWorld())
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), MuzzleFlash, FlashLocation, SpawnRotation);
+	}
+	if (FireSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, FlashLocation);
+	}
+}
+
+void As1mpleFpsCharacter::MulticastPlayThirdPersonMontage_Implementation(UAnimMontage* Montage)
+{
+	PlayThirdPersonMontage(Montage);
+}
+
+void As1mpleFpsCharacter::MulticastPlayDeathMontage_Implementation(UAnimMontage* DeathMontage)
+{
+	if (IsValid(DeathMontage))
+	{
+		PlayThirdPersonMontage(DeathMontage);
+		const float Len = FMath::Max(DeathMontage->GetPlayLength(), 0.1f);
+		GetWorld()->GetTimerManager().SetTimer(DeathHideTimerHandle, [this]()
+		{
+			GetMesh()->SetVisibility(false);
+			GetMesh()->SetHiddenInGame(true, true);
+			GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}, Len, false);
+	}
+	else
+	{
+		// 没配死亡动画：立即隐藏第三人称 mesh
+		GetMesh()->SetVisibility(false);
+		GetMesh()->SetHiddenInGame(true, true);
+		GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+}
+
+void As1mpleFpsCharacter::OnTaunt()
+{
+	if (IsDead()) return;
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	if (Now - LastTauntTime < 2.0f) return; // 防连点
+	LastTauntTime = Now;
+
+	if (GetWorld() && GetWorld()->GetNetMode() == NM_Client)
+	{
+		ServerTaunt();
+		return;
+	}
+	// 服务器（含 Listen Server 主机）：轮换选择一个嘲讽 montage 广播
+	if (ThirdPersonTauntMontages.Num() == 0) return;
+	const int32 Idx = (LastTauntIndex + 1) % ThirdPersonTauntMontages.Num();
+	LastTauntIndex = Idx;
+	MulticastPlayThirdPersonMontage(ThirdPersonTauntMontages[Idx]);
+}
+
+void As1mpleFpsCharacter::ServerTaunt_Implementation()
+{
+	if (IsDead()) return;
+	if (ThirdPersonTauntMontages.Num() == 0) return;
+	const int32 Idx = (LastTauntIndex + 1) % ThirdPersonTauntMontages.Num();
+	LastTauntIndex = Idx;
+	MulticastPlayThirdPersonMontage(ThirdPersonTauntMontages[Idx]);
 }

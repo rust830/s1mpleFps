@@ -6,12 +6,21 @@
 #include "Sound/SoundMix.h"
 #include "Sound/SoundClass.h"
 #include "Engine/GameInstance.h"
+#include "Engine/Engine.h"
 
 static const FString SettingsSlotName = TEXT("PlayerSettings");
 
-USettingsSubsystem* USettingsSubsystem::GetSettingsSubsystem(const UObject* WorldContextObject)
+USettingsSubsystem* USettingsSubsystem::GetSettingsSubsystem(UObject* WorldContextObject)
 {
 	UGameInstance* GI = UGameplayStatics::GetGameInstance(WorldContextObject);
+	if (!GI && GEngine)
+	{
+		// 兜底：蓝图节点 World Context 为空时（节点陈旧/没接），用引擎当前世界（PIE）的 GameInstance
+		if (UWorld* World = GEngine->GetWorld())
+		{
+			GI = World->GetGameInstance();
+		}
+	}
 	return GI ? GI->GetSubsystem<USettingsSubsystem>() : nullptr;
 }
 

@@ -7,6 +7,7 @@
 #include "Logging/LogMacros.h"
 #include "Blueprint/UserWidget.h"
 #include "Perception/AIPerceptionStimuliSourceComponent.h"
+#include "TimerManager.h"
 #include "s1mpleFpsCharacter.generated.h"
 
 
@@ -16,6 +17,7 @@ class USkeletalMeshComponent;
 class UCameraComponent;
 class USpringArmComponent;
 class UInputAction;
+class UAnimMontage;
 class UDamageComponent;
 struct FInputActionValue;
 class UArmorData;
@@ -23,6 +25,8 @@ class UHealthData;
 class UGrenadeComponent;
 class UHealthComponent;
 class UWeaponInventoryComponent;
+class UParticleSystem;
+class USoundBase;
 
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -88,6 +92,10 @@ public:
 	UPROPERTY(EditAnywhere, BluePrintReadOnly, Category = Input)
 	UInputAction* PauseAction;
 
+	// 嘲讽输入
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* TauntAction;
+
 
 protected:
 	virtual void BeginPlay() override;
@@ -109,6 +117,8 @@ public:
 	UFUNCTION(BlueprintImplementableEvent)
 	void ShowHitMarket(bool bIsEnemy);
 
+	// 命中标记：服务器 → 开枪者自己的客户端（参照 ClientDamageFeedback），交给 HUD 显示
+	UFUNCTION(Client, Reliable)
 	void PlayHitMarker(bool bIsEnemy);
 
 	void Interact();
@@ -187,6 +197,57 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson")
 	bool bHideWeaponFromOthers = true;
 	void ReattachWeaponsForView(bool bToThirdPerson);
+
+	// ===================== 第三人称动画（Montage 资产在 BP 里指定） =====================
+	// 开火：高频，走 Unreliable multicast；建议放 UpperBody 槽，不打断腿部移动
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonFireMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonReloadMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonDeathMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonDeathMontageBackward;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonHitReactMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonRespawnMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	UAnimMontage* ThirdPersonIntroMontage; // 热身登场
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Animation")
+	TArray<UAnimMontage*> ThirdPersonTauntMontages;
+
+	// 在 GetMesh() 的 AnimInstance 上播一次 montage（本地）
+	void PlayThirdPersonMontage(UAnimMontage* Montage);
+
+	// 开火：NetMulticast + Unreliable（高频，丢包无所谓）。montage 作为参数传入——字段不复制，客户端拿不到
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastThirdPersonFire(UAnimMontage* FireMontage);
+
+	// 枪口火焰/枪声：服务器广播给其他端（本地玩家在 StartSingleFire 已直接 spawn）。
+	// 放角色身上，因为武器组件是动态建、RPC 不可靠（Invalid Net GUID）。
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastMuzzleFlash(FVector SpawnLocation, FRotator SpawnRotation, UParticleSystem* MuzzleFlash, USoundBase* FireSound);
+
+	// 通用：NetMulticast + Reliable（换弹/重生/受击/登场/嘲讽等低频一次性动画）。montage 作为参数传入
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPlayThirdPersonMontage(UAnimMontage* Montage);
+
+	// 死亡：NetMulticast + Reliable，播完自动隐藏第三人称 mesh（长度从参数计算，客户端无需复制字段）
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPlayDeathMontage(UAnimMontage* DeathMontage);
+
+	// 死亡动画播完隐藏 mesh 的定时器（供 RespawnVisuals 清除，防止复活后被隐藏）
+	FTimerHandle DeathHideTimerHandle;
+
+	// 嘲讽：客户端→服务器→广播；服务器轮换选择 montage
+	void OnTaunt();
+	UFUNCTION(Server, Reliable)
+	void ServerTaunt();
+
+	// 嘲讽轮换状态（仅服务器有意义）
+	int32 LastTauntIndex = -1;
+	float LastTauntTime = 0.0f;
 
 	void GrantArmor(UArmorData* ArmorData);
 	

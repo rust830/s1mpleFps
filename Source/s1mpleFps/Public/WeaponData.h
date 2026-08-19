@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "Engine/SkeletalMesh.h"
+#include "Particles/ParticleSystem.h"
 #include "Animation/AnimSequence.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
@@ -54,6 +55,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
 	USoundBase* FireSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
+	UParticleSystem* MuzzleFlashEffect;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")
 	UAnimSequence* FireAnimation;

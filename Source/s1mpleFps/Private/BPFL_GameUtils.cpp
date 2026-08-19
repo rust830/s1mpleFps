@@ -76,6 +76,7 @@ bool UBPFL_GameUtils::RemapKey(UObject* WorldContext, FName MappingName, FKey Ne
 	FMapPlayerKeyArgs Args;
 	Args.MappingName = MappingName;
 	Args.NewKey = NewKey;
+	Args.Slot = EPlayerMappableKeySlot::First;  // 覆盖 First 槽位（替换原键位），否则默认 Unspecified 会新增一个槽、新旧两键都生效
 	Args.bCreateMatchingSlotIfNeeded = true;
 
 	FGameplayTagContainer FailureReason;
@@ -87,4 +88,26 @@ bool UBPFL_GameUtils::RemapKey(UObject* WorldContext, FName MappingName, FKey Ne
 		return false;
 	}
 	return true;
+}
+
+bool UBPFL_GameUtils::GetMappedKey(UObject* WorldContext, FName MappingName, FKey& OutKey)
+{
+	OutKey = EKeys::Invalid;
+	UEnhancedInputUserSettings* Settings = GetUserSettingsForContext(WorldContext);
+	if (!Settings)
+	{
+		return false;
+	}
+	UEnhancedPlayerMappableKeyProfile* Profile = Settings->GetActiveKeyProfile();
+	if (!Profile)
+	{
+		return false;
+	}
+	TArray<FKey> Keys;
+	if (Profile->GetMappedKeysInRow(MappingName, Keys) > 0)
+	{
+		OutKey = Keys[0];
+		return true;
+	}
+	return false;
 }

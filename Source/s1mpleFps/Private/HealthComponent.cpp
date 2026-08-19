@@ -16,6 +16,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimMontage.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
@@ -180,12 +181,9 @@ void UHealthComponent::Die()
 		}
 	}
 
-	// === All clients: disable movement + hide mesh (no ragdoll to avoid mesh stretch)
+	// === All clients: 停止移动；先隐藏第一人称（手臂/相机/武器），第三人称模型由死亡 montage RPC 负责播放+隐藏 ===
 	Character->GetCharacterMovement()->DisableMovement();
 	Character->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Character->GetMesh()->SetVisibility(false);
-	Character->GetMesh()->SetHiddenInGame(true, true);
-	Character->GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Character->Mesh1P->SetVisibility(false);
 	Character->Mesh1P->SetHiddenInGame(true, true);
 	Character->FirstPersonCameraComponent->SetActive(false);
@@ -198,6 +196,24 @@ void UHealthComponent::Die()
 			Weapon->SetHiddenInGame(true, true);
 		}
 	}
+
+	// 服务器：按击杀者方向选死亡 montage（默认向前倒；背后击杀则向后倒），广播到所有端（播完自动隐藏 mesh）
+	if (bIsServer)
+	{
+		UAnimMontage* DeathMontage = Character->ThirdPersonDeathMontage;
+		if (Character->ThirdPersonDeathMontageBackward && DamageComponent->LastInstigator)
+		{
+			FVector ToVictim = Character->GetActorLocation() - DamageComponent->LastInstigator->GetActorLocation();
+			ToVictim.Z = 0.0f;
+			FVector VictimForward = Character->GetActorForwardVector();
+			VictimForward.Z = 0.0f;
+			if (!VictimForward.IsNearlyZero() && (ToVictim | VictimForward) < 0.0f)
+			{
+				DeathMontage = Character->ThirdPersonDeathMontageBackward;
+			}
+		}
+		Character->MulticastPlayDeathMontage(DeathMontage);
+	}
 }
 
 void UHealthComponent::Respawn()
@@ -207,8 +223,11 @@ void UHealthComponent::Respawn()
 		return;
 	}
 
+	UE_LOG(LogTemp, Log, TEXT("[Respawn] %s 开始复活"), *Character->GetName());
+
 	GetWorld()->GetTimerManager().ClearTimer(RespawnHandle);
 	GetWorld()->GetTimerManager().ClearTimer(HealingHandle);
+	GetWorld()->GetTimerManager().ClearTimer(Character->DeathHideTimerHandle);
 
 	bIsDead = false;
 	bIsDeadReplicated = false;
@@ -235,17 +254,28 @@ void UHealthComponent::Respawn()
 		if (PlayerStarts.Num() > 0)
 		{
 			int32 RandomIndex = FMath::RandRange(0, PlayerStarts.Num() - 1);
-			Character->SetActorLocation(PlayerStarts[RandomIndex]->GetActorLocation());
+			if (AActor* Start = PlayerStarts[RandomIndex])
+			{
+				// TeleportTo 会走 CharacterMovement 的传送路径并强制同步位置到客户端，
+				// 否则 2P 会卡在死亡原地、要等数秒才被校正回出生点（SetActorLocation 不标传送）
+				Character->TeleportTo(Start->GetActorLocation(), Start->GetActorRotation(), false, true);
+			}
 		}
 	}
 
 	// 强制停止所有正在进行的开火/换弹 timer，防止复活后残留
-	if (Character->WeaponInventoryComponent->CurrentWeapon)
+	if (Character->WeaponInventoryComponent && Character->WeaponInventoryComponent->CurrentWeapon)
 	{
 		Character->WeaponInventoryComponent->CurrentWeapon->StopAutoFire();
 	}
 
 	RespawnVisuals();
+
+	// 重生 montage（服务器广播到所有端）
+	if (IsValid(Character->ThirdPersonRespawnMontage))
+	{
+		Character->MulticastPlayThirdPersonMontage(Character->ThirdPersonRespawnMontage);
+	}
 
 	// 确定性刷新客户端血条：服务器直接用权威血量推送，不依赖 OnRep_Health / OnRep_bIsDead 的先后顺序
 	ClientOnRespawn(ReplicatedHealth, DamageComponent->MaxHealth);
@@ -263,6 +293,9 @@ void UHealthComponent::RespawnVisuals()
 		DeathScreenWidget->RemoveFromParent();
 		DeathScreenWidget = nullptr;
 	}
+
+	// 清掉可能残留的死亡隐藏定时器，防止复活后模型又被隐藏
+	GetWorld()->GetTimerManager().ClearTimer(Character->DeathHideTimerHandle);
 
 	// 先恢复移动组件（必须在恢复碰撞之前，防止卡几何体）
 	UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
@@ -287,7 +320,7 @@ void UHealthComponent::RespawnVisuals()
 	Character->Mesh1P->SetOnlyOwnerSee(true);
 	Character->FirstPersonCameraComponent->SetActive(true);
 	// 恢复武器可见性（第三人称仍隐藏）
-	if (Character->WeaponInventoryComponent->CurrentWeapon && !Character->bIsThirdPerson)
+	if (Character->WeaponInventoryComponent && Character->WeaponInventoryComponent->CurrentWeapon && !Character->bIsThirdPerson)
 	{
 		Character->WeaponInventoryComponent->CurrentWeapon->SetVisibility(true);
 		Character->WeaponInventoryComponent->CurrentWeapon->SetHiddenInGame(false, true);
@@ -332,6 +365,12 @@ void UHealthComponent::OnHealthDamaged(float Damage, AActor* DamageInstigator)
 	if (Damage > 0.0f)
 	{
 		Character->ClientDamageFeedback(0.45f, 0.5f);
+	}
+
+	// 受击硬直 montage（第三人称模型，服务器广播）
+	if (Damage > 0.0f && !bIsDead && IsValid(Character->ThirdPersonHitReactMontage))
+	{
+		Character->MulticastPlayThirdPersonMontage(Character->ThirdPersonHitReactMontage);
 	}
 
 	// 受击打断打药：掉血即收手（OnHealthDamaged 仅服务器触发，需同步通知客户端收起）

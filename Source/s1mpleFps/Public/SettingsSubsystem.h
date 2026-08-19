@@ -17,9 +17,9 @@ class S1MPLEFPS_API USettingsSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
-	// 便捷获取（供蓝图调用）：直接返回子系统实例
+	// 便捷获取（供蓝图调用）：直接返回子系统实例。注意 WorldContext 必须是「非 const 的 UObject*」，否则 meta 不生效、蓝图节点的 World Context 不会被自动填上
 	UFUNCTION(BlueprintCallable, Category = "Settings", meta = (WorldContext = "WorldContextObject"))
-	static USettingsSubsystem* GetSettingsSubsystem(const UObject* WorldContextObject);
+	static USettingsSubsystem* GetSettingsSubsystem(UObject* WorldContextObject);
 
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;

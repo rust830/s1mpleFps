@@ -31,10 +31,10 @@ void UHUDWidget::NativeConstruct()
 	HitMarkerAlpha = 0.0f;
 	HitMarkerDuration = 0.0f;
 	bHitMarkerIsEnemy = false;
-
-	HealthGreen  = FLinearColor(0.061f, 0.729f, 0.218f); // #4ADE80
-	HealthYellow = FLinearColor(0.963f, 0.516f, 0.019f); // #FBBF24
-	HealthRed    = FLinearColor(0.786f, 0.042f, 0.056f); // #E63946
+	//硬编码颜色
+	HealthGreen  = FLinearColor(0.061f, 0.729f, 0.218f); 
+	HealthYellow = FLinearColor(0.963f, 0.516f, 0.019f); 
+	HealthRed    = FLinearColor(0.786f, 0.042f, 0.056f);
 
 	// Default text values - prevents "Text Block" placeholder
 	if (AmmoText) AmmoText->SetText(FText::FromString(TEXT("0 / 0")));
@@ -48,7 +48,7 @@ void UHUDWidget::NativeConstruct()
 	if (WeaponNameText) WeaponNameText->SetText(FText::FromString(TEXT("")));
 	if (ArmorNameText) ArmorNameText->SetText(FText::FromString(TEXT("")));
 
-	// 热身倒计时：蓝图中字号/颜色/位置均可直接配置，C++ 只兜底字号
+	// 热身倒计时
 	if (WarmUpCountdownText)
 	{
 		FSlateFontInfo WarmUpFont = WarmUpCountdownText->GetFont();
@@ -58,7 +58,7 @@ void UHUDWidget::NativeConstruct()
 	}
 
 	// Hide hit marker, scoreboard, and ammo initially
-	if (HitMarkerImage) HitMarkerImage->SetOpacity(0.0f);
+	if (HitMarkerImage) { HitMarkerImage->SetOpacity(0.0f); HitMarkerImage->SetVisibility(ESlateVisibility::Hidden); }
 	if (ScoreboardPanel) ScoreboardPanel->SetVisibility(ESlateVisibility::Collapsed);
 	if (AmmoText) AmmoText->SetVisibility(ESlateVisibility::Hidden);
 	if (HealingText) HealingText->SetVisibility(ESlateVisibility::Hidden);
@@ -315,6 +315,10 @@ void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		{
 			HitMarkerImage->SetOpacity(HitMarkerAlpha);
 			HitMarkerImage->SetColorAndOpacity(bHitMarkerIsEnemy ? HealthRed : FLinearColor::White);
+			if (HitMarkerAlpha <= 0.0f)
+			{
+				HitMarkerImage->SetVisibility(ESlateVisibility::Hidden);
+			}
 		}
 	}
 
@@ -441,6 +445,7 @@ void UHUDWidget::PlayHitMarker(bool bIsEnemy)
 	HitMarkerDuration = 0.3f;
 	if (HitMarkerImage)
 	{
+		HitMarkerImage->SetVisibility(ESlateVisibility::Visible);
 		HitMarkerImage->SetOpacity(1.0f);
 		HitMarkerImage->SetColorAndOpacity(bIsEnemy ? HealthRed : FLinearColor::White);
 	}

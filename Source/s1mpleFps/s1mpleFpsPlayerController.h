@@ -77,8 +77,6 @@ protected:
 	UFUNCTION(Server, Reliable)
 		void ServerPurchaseItem(int32 ItemIndex);
 	UFUNCTION(Client, Reliable)
-		void ClientPurchaseComplete(int32 WeaponSlotIndex);
-	UFUNCTION(Client, Reliable)
 		void ClientGrantArmorComplete(UArmorData* ArmorDataPtr);
 	UFUNCTION(Client, Reliable)
 		void ClientGrenadePurchaseComplete();

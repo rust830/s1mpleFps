@@ -70,6 +70,8 @@ void UTP_WeaponComponent::OnRep_WeaponData()
 		SetSkeletalMeshAsset(WeaponData->WeaponMesh);
 	if (!FireSound && WeaponData->FireSound)
 		FireSound = WeaponData->FireSound;
+	if (!MuzzleFlashEffect && WeaponData->MuzzleFlashEffect)
+		MuzzleFlashEffect = WeaponData->MuzzleFlashEffect;
 	if (!FireAnimation && WeaponData->FireAnimation)
 		FireAnimation = WeaponData->FireAnimation;
 	if (!ReloadAnimation && WeaponData->ReloadAnimation)
@@ -110,6 +112,7 @@ void UTP_WeaponComponent::ServerReload_Implementation()
 	int32 ToReload = FMath::Min(Needed, ReplicatedSpareAmmo);
 	ReplicatedCurrentAmmo += ToReload;
 	ReplicatedSpareAmmo -= ToReload;
+	if (Character && Character->WeaponInventoryComponent) Character->WeaponInventoryComponent->RefreshSlotAmmo(this);
 }
 
 void UTP_WeaponComponent::StartAiming()
@@ -329,6 +332,7 @@ void UTP_WeaponComponent::Reload()
 	{
 		int32 Needed = WeaponData->MaxProjectile - ReplicatedCurrentAmmo;
 		PendingReloadAmount = FMath::Min(Needed, ReplicatedSpareAmmo);
+		Character->MulticastPlayThirdPersonMontage(Character->ThirdPersonReloadMontage);
 	}
 	else
 	{
@@ -337,8 +341,6 @@ void UTP_WeaponComponent::Reload()
 		// 否则会和 OnRep 已覆盖的值叠加成双倍。
 		int32 Needed = WeaponData->MaxProjectile - CurrentAmmo;
 		PendingReloadAmount = FMath::Min(Needed, SpareAmmo);
-		CurrentAmmo += PendingReloadAmount;
-		SpareAmmo -= PendingReloadAmount;
 		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
 		Character->WeaponInventoryComponent->ServerReloadWeapon(Character->WeaponInventoryComponent->WeaponIndex);
 	}
@@ -354,6 +356,7 @@ void UTP_WeaponComponent::FinishReload()
 		ReplicatedSpareAmmo -= PendingReloadAmount;
 		CurrentAmmo = ReplicatedCurrentAmmo;
 		SpareAmmo = ReplicatedSpareAmmo;
+		if (Character->WeaponInventoryComponent) Character->WeaponInventoryComponent->RefreshSlotAmmo(this);
 	}
 	PendingReloadAmount = 0;
 	OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
@@ -413,12 +416,24 @@ void UTP_WeaponComponent::StartSingleFire()
 		FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
 		SpawnRotation.Pitch += FMath::FRandRange(-CurrentSpread, CurrentSpread);
 		SpawnRotation.Yaw += FMath::FRandRange(-CurrentSpread, CurrentSpread);
-		const FVector SpawnLocation = Character->GetFirstPersonCameraComponent()->GetComponentLocation() + SpawnRotation.RotateVector(MuzzleOffset);
+		FVector SpawnLocation;
+		if (DoesSocketExist(MuzzleSocketName))
+		{
+			// 从枪口插槽的真实世界位置射出，子弹/火焰与第一人称枪口对齐
+			SpawnLocation = GetSocketLocation(MuzzleSocketName);
+		}
+		else
+		{
+			// 兜底：枪没有 muzzle 插槽时退回相机 + 偏移
+			SpawnLocation = Character->GetFirstPersonCameraComponent()->GetComponentLocation() + SpawnRotation.RotateVector(MuzzleOffset);
+		}
 
 		if (Character->HasAuthority()) {
 			ReplicatedCurrentAmmo -= 1;
+			if (Character->WeaponInventoryComponent) Character->WeaponInventoryComponent->RefreshSlotAmmo(this);
 			PerformFire(SpawnLocation, SpawnRotation);
-			MulticastFireEffect(SpawnLocation, SpawnRotation);
+			Character->MulticastThirdPersonFire(Character->ThirdPersonFireMontage);
+			Character->MulticastMuzzleFlash(SpawnLocation, SpawnRotation, MuzzleFlashEffect, FireSound);
 		}
 		else {
 			Character->WeaponInventoryComponent->ServerFireWeapon(Character->WeaponInventoryComponent->WeaponIndex, SpawnLocation, SpawnRotation);
@@ -517,8 +532,10 @@ void UTP_WeaponComponent::ServerFire_Implementation(FVector SpawnLocation, FRota
 		return;
 	}
 	ReplicatedCurrentAmmo -= 1;
+	if (Character && Character->WeaponInventoryComponent) Character->WeaponInventoryComponent->RefreshSlotAmmo(this);
 	PerformFire(SpawnLocation, SpawnRotation);
-	MulticastFireEffect(SpawnLocation, SpawnRotation);
+	Character->MulticastThirdPersonFire(Character->ThirdPersonFireMontage);
+	Character->MulticastMuzzleFlash(SpawnLocation, SpawnRotation, MuzzleFlashEffect, FireSound);
 }
 
 void UTP_WeaponComponent::MulticastFireEffect_Implementation(FVector SpawnLocation, FRotator SpawnRotation)
@@ -832,6 +849,8 @@ bool UTP_WeaponComponent::AttachWeapon(As1mpleFpsCharacter* TargetCharacter)
 			SetSkeletalMeshAsset(WeaponData->WeaponMesh);
 		if (!FireSound && WeaponData->FireSound)
 			FireSound = WeaponData->FireSound;
+		if (!MuzzleFlashEffect && WeaponData->MuzzleFlashEffect)
+			MuzzleFlashEffect = WeaponData->MuzzleFlashEffect;
 		if (!FireAnimation && WeaponData->FireAnimation)
 			FireAnimation = WeaponData->FireAnimation;
 		if (!ReloadAnimation && WeaponData->ReloadAnimation)

@@ -10,6 +10,7 @@
 #include "GrenadeComponent.h"
 #include "DamageComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "UserSettings/EnhancedInputUserSettings.h"
 #include "EnhancedInputComponent.h"
 #include "InputActionValue.h"
 #include "s1mpleFpsPlayerState.h"
@@ -26,10 +27,12 @@ void As1mpleFpsPlayerController::BeginPlay()
 		if (InputMappingContext)
 		{
 			Subsystem->AddMappingContext(InputMappingContext, 0);
-		}
-		else
-		{
-			
+			// UE5.3+ 改键系统：把 IMC 注册到 UserSettings，MapPlayerKey 才能找到可映射的动作。
+			// 注意：2D 轴动作（Move/Look）不能标 Player Mappable，否则轴向修饰器会丢失、WASD 全变同一方向。
+			if (UEnhancedInputUserSettings* UserSettings = Subsystem->GetUserSettings())
+			{
+				UserSettings->RegisterInputMappingContext(InputMappingContext);
+			}
 		}
 	}
 
@@ -204,9 +207,8 @@ void As1mpleFpsPlayerController::ServerPurchaseItem_Implementation(int32 ItemInd
 		TSubclassOf<UTP_WeaponComponent> EffectiveClass = Item.WeaponClass;
 		if (!EffectiveClass)
 			EffectiveClass = UTP_WeaponComponent::StaticClass();
-		int32 SlotIndex = PC->WeaponInventoryComponent->GrantWeapon(EffectiveClass, Item.WeaponData);
-		if (SlotIndex >= 0)
-			ClientPurchaseComplete(SlotIndex);
+		// 数据驱动：GrantWeapon 内部 SyncWeaponSlots() 会把武器数据复制给客户端，客户端本地建枪，无需额外 RPC
+		PC->WeaponInventoryComponent->GrantWeapon(EffectiveClass, Item.WeaponData);
 	}
 	else if (Item.ArmorData)
 	{
@@ -227,27 +229,6 @@ void As1mpleFpsPlayerController::ServerPurchaseItem_Implementation(int32 ItemInd
 		}
 		GC->AddGrenade(Item.GrenadeData, Item.GrenadeAmount);
 		ClientGrenadePurchaseComplete();
-	}
-}
-
-void As1mpleFpsPlayerController::ClientPurchaseComplete_Implementation(int32 WeaponSlotIndex)
-{
-	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(GetPawn());
-	if (!Char) return;
-
-	
-
-	if (Char->WeaponInventoryComponent->WeaponInventory.IsValidIndex(WeaponSlotIndex) && Char->WeaponInventoryComponent->WeaponInventory[WeaponSlotIndex])
-	{
-		UTP_WeaponComponent* Weapon = Char->WeaponInventoryComponent->WeaponInventory[WeaponSlotIndex];
-		Weapon->SetOwningCharacter(Char);
-		Char->WeaponInventoryComponent->CurrentWeapon = nullptr;
-		Char->WeaponInventoryComponent->SwitchWeapon(WeaponSlotIndex);
-	}
-	else
-	{
-		
-		Char->WeaponInventoryComponent->PendingPurchaseIndex = WeaponSlotIndex;
 	}
 }
 

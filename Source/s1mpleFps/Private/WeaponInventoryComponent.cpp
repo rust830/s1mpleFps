@@ -29,8 +29,10 @@ void UWeaponInventoryComponent::BeginPlay()
 void UWeaponInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(UWeaponInventoryComponent, CurrentWeapon);
-	DOREPLIFETIME_CONDITION(UWeaponInventoryComponent, WeaponInventory, COND_OwnerOnly);
+	// 只复制「纯数据」槽位 + 当前索引；组件由客户端本地创建，不再复制组件指针。
+	// 之前复制 CurrentWeapon / WeaponInventory 组件指针，运行时 NewObject 的动态组件复制不可靠，
+	// 导致「买枪不发货」。改成复制类 + WeaponData + 弹药后，客户端据此本地建枪，确定性可用。
+	DOREPLIFETIME_CONDITION(UWeaponInventoryComponent, ReplicatedWeaponSlots, COND_OwnerOnly);
 	DOREPLIFETIME(UWeaponInventoryComponent, WeaponIndex);
 }
 
@@ -57,7 +59,6 @@ void UWeaponInventoryComponent::SwitchWeapon(int32 Index)
 		CurrentWeapon->UnEquip();
 	}
 	NewWeapon->Equip();
-	PreviousClientWeapon = CurrentWeapon;
 	CurrentWeapon = NewWeapon;
 	WeaponIndex = Index;
 
@@ -224,129 +225,130 @@ void UWeaponInventoryComponent::SetActiveWeapon(UTP_WeaponComponent* NewWeapon)
 	}
 }
 
-void UWeaponInventoryComponent::OnRep_CurrentWeapon()
+void UWeaponInventoryComponent::OnRep_WeaponIndex()
 {
-	if (!Character)
+	// 服务器告知当前武器索引。仅纯客户端（非权威、本地控制）切枪；主机本身权威，直接用本地组件。
+	if (!Character || Character->HasAuthority() || !Character->IsLocallyControlled())
 	{
 		return;
 	}
-
-	if (Character->IsLocallyControlled())
+	if (WeaponInventory.IsValidIndex(WeaponIndex) && WeaponInventory[WeaponIndex])
 	{
-		// 本地玩家：武器可能在客户端没 Equip（纯客户端只发 RPC），OnRep 时补 Equip
-		if (CurrentWeapon != PreviousClientWeapon)
-		{
-			if (PreviousClientWeapon)
-				PreviousClientWeapon->UnEquip();
-			if (CurrentWeapon)
-			{
-				CurrentWeapon->SetOwningCharacter(Character);
-				CurrentWeapon->Equip();
-			}
-			PreviousClientWeapon = CurrentWeapon;
-		}
-		if (CurrentWeapon)
-		{
-			if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Character->GetController()))
-			{
-				if (PC->HUDWidget)
-				{
-					PC->HUDWidget->BindToWeapon(CurrentWeapon);
-				}
-			}
-		}
-		return;
-	}
-
-	if (CurrentWeapon != PreviousClientWeapon)
-	{
-		if (PreviousClientWeapon)
-			PreviousClientWeapon->UnEquip();
-		if (CurrentWeapon)
-		{
-
-			CurrentWeapon->SetOwningCharacter(Character);
-			CurrentWeapon->Equip();
-		}
-		PreviousClientWeapon = CurrentWeapon;
+		SwitchWeapon(WeaponIndex);
 	}
 }
 
-void UWeaponInventoryComponent::OnRep_WeaponInventory()
+void UWeaponInventoryComponent::OnRep_WeaponSlots()
 {
-	if (!Character)
+	if (!Character || Character->HasAuthority() || !Character->IsLocallyControlled())
+	{
+		return;
+	}
+	RebuildLocalWeaponsFromSlots();
+}
+
+void UWeaponInventoryComponent::SyncWeaponSlots()
+{
+	// 仅服务端调用：把本地 WeaponInventory 的真实状态刷进 ReplicatedWeaponSlots（定长 MaxWeaponSlots）
+	if (!Character || !Character->HasAuthority())
 	{
 		return;
 	}
 
-	if (Character->IsLocallyControlled())
+	ReplicatedWeaponSlots.SetNum(MaxWeaponSlots);
+	for (int32 i = 0; i < MaxWeaponSlots; i++)
 	{
-		// Handle pending purchase (ClientPurchaseComplete arrived before replication)
-		if (PendingPurchaseIndex >= 0)
+		UTP_WeaponComponent* W = WeaponInventory.IsValidIndex(i) ? WeaponInventory[i] : nullptr;
+		if (W)
 		{
-			if (WeaponInventory.IsValidIndex(PendingPurchaseIndex) && WeaponInventory[PendingPurchaseIndex])
-			{
-
-				UTP_WeaponComponent* Weapon = WeaponInventory[PendingPurchaseIndex];
-				Weapon->SetOwningCharacter(Character);
-				CurrentWeapon = nullptr;
-				SwitchWeapon(PendingPurchaseIndex);
-				PendingPurchaseIndex = -1;
-				GetWorld()->GetTimerManager().ClearTimer(PurchaseRetryHandle);
-			}
-			else
-			{
-				// 动态创建的组件可能尚未复制到达，延迟重试
-
-				if (PurchaseRetryCount < 10)
-				{
-					PurchaseRetryCount++;
-					GetWorld()->GetTimerManager().SetTimer(PurchaseRetryHandle, [this]() {
-						OnRep_WeaponInventory();
-					}, 0.1f, false);
-				}
-				else
-				{
-
-					PendingPurchaseIndex = -1;
-					PurchaseRetryCount = 0;
-				}
-			}
+			ReplicatedWeaponSlots[i].WeaponClass = W->GetClass();
+			ReplicatedWeaponSlots[i].WeaponData = W->WeaponData;
+			ReplicatedWeaponSlots[i].CurrentAmmo = W->ReplicatedCurrentAmmo;
+			ReplicatedWeaponSlots[i].SpareAmmo = W->ReplicatedSpareAmmo;
 		}
 		else
 		{
-			PurchaseRetryCount = 0;
+			ReplicatedWeaponSlots[i].WeaponClass = nullptr;
+			ReplicatedWeaponSlots[i].WeaponData = nullptr;
+			ReplicatedWeaponSlots[i].CurrentAmmo = 0;
+			ReplicatedWeaponSlots[i].SpareAmmo = 0;
 		}
+	}
+}
+
+void UWeaponInventoryComponent::RefreshSlotAmmo(UTP_WeaponComponent* Weapon)
+{
+	// 仅服务端：开火/换弹后只刷新对应槽的弹药，避免整表重建
+	if (!Character || !Character->HasAuthority() || !Weapon)
+	{
+		return;
+	}
+	int32 Slot = WeaponInventory.Find(Weapon);
+	if (Slot == INDEX_NONE || !ReplicatedWeaponSlots.IsValidIndex(Slot))
+	{
+		return;
+	}
+	ReplicatedWeaponSlots[Slot].CurrentAmmo = Weapon->ReplicatedCurrentAmmo;
+	ReplicatedWeaponSlots[Slot].SpareAmmo = Weapon->ReplicatedSpareAmmo;
+}
+
+void UWeaponInventoryComponent::RebuildLocalWeaponsFromSlots()
+{
+	// 仅纯客户端：根据 ReplicatedWeaponSlots 重建/更新本地组件（类/数据变了才重建，弹药变了只刷数值）
+	if (!Character || Character->HasAuthority())
+	{
 		return;
 	}
 
-	// 远程角色：所有武器隐藏（无配套动画，不应显示）
-	for (UTP_WeaponComponent* Weapon : WeaponInventory)
+	for (int32 i = 0; i < ReplicatedWeaponSlots.Num(); i++)
 	{
-		if (!Weapon) continue;
-		if (Weapon->GetAttachParent() != Character->Mesh1P)
+		const FWeaponSlotInfo& Slot = ReplicatedWeaponSlots[i];
+		UTP_WeaponComponent* Local = WeaponInventory.IsValidIndex(i) ? WeaponInventory[i] : nullptr;
+
+		const bool bEmpty = (Slot.WeaponData == nullptr && Slot.WeaponClass == nullptr);
+		if (bEmpty)
 		{
-			Weapon->SetOwningCharacter(Character);
-			Weapon->AttachToComponent(Character->Mesh1P, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), FName(TEXT("GripPoint")));
-			Weapon->ApplyWeaponMeshTransform();
-			Weapon->bIsEquipped = false;
+			if (Local)
+			{
+				Local->DestroyComponent();
+				WeaponInventory[i] = nullptr;
+			}
+			continue;
 		}
-		Weapon->SetVisibility(false);
-		Weapon->SetHiddenInGame(true, true);
+
+		// 类或 WeaponData 变了 → 重建；否则只更新弹药
+		if (!Local || Local->GetClass() != Slot.WeaponClass.Get() || Local->WeaponData != Slot.WeaponData)
+		{
+			if (Local)
+			{
+				Local->DestroyComponent();
+			}
+			Local = NewObject<UTP_WeaponComponent>(Character, Slot.WeaponClass);
+			Local->SetIsReplicated(false);
+			Local->WeaponData = Slot.WeaponData;
+			Local->RegisterComponent();
+			Local->AttachWeapon(Character);
+
+			while (WeaponInventory.Num() <= i) WeaponInventory.Add(nullptr);
+			WeaponInventory[i] = Local;
+		}
+
+		Local->CurrentAmmo = Slot.CurrentAmmo;
+		Local->SpareAmmo = Slot.SpareAmmo;
+		Local->OnAmmoChanged.Broadcast(Local->CurrentAmmo, Local->SpareAmmo);
 	}
 
-	// Ensure CurrentWeapon reflects the server's WeaponIndex
-	if (WeaponInventory.IsValidIndex(WeaponIndex) && WeaponInventory[WeaponIndex] != CurrentWeapon)
+	// 裁掉多余槽
+	while (WeaponInventory.Num() > ReplicatedWeaponSlots.Num())
 	{
-		if (CurrentWeapon)
-			CurrentWeapon->UnEquip();
-		CurrentWeapon = WeaponInventory[WeaponIndex];
-		if (CurrentWeapon)
-		{
-			CurrentWeapon->SetOwningCharacter(Character);
-			CurrentWeapon->Equip();
-		}
-		PreviousClientWeapon = CurrentWeapon;
+		UTP_WeaponComponent* Extra = WeaponInventory.Pop();
+		if (Extra) Extra->DestroyComponent();
+	}
+
+	// 对齐当前武器（SwitchWeapon 幂等，带 HUD 绑定）
+	if (WeaponIndex >= 0 && WeaponIndex < WeaponInventory.Num() && WeaponInventory[WeaponIndex])
+	{
+		SwitchWeapon(WeaponIndex);
 	}
 }
 
@@ -380,21 +382,21 @@ void UWeaponInventoryComponent::ServerPickUpWeapon_Implementation(AActor* HitAct
 		return;
 	}
 
-	// Reuse the pickup weapon component directly (no NewObject).
-	// Dynamically created components cannot be properly replicated in UE5
-	// without full subobject registration, which requires engine-level setup.
-	// The pickup weapon already exists on both server and client, and
-	// AttachToComponent replicates the scene attachment.  The key sync
-	// guarantees come from bIsAlreadyPickedUp (now replicated) and the
-	// weapon switching Server RPCs.
-	if (!PickupWeapon->AttachWeapon(Character))
+	// 数据驱动：不再复用拾取组件（否则它的场景挂接会复制到本地玩家，和客户端本地建的枪重叠）。
+	// 改为读拾取组件的类 + WeaponData，在服务端 NewObject 一把「本地」枪，交给 SyncWeaponSlots 同步数据。
+	UTP_WeaponComponent* NewWeapon = NewObject<UTP_WeaponComponent>(Character, PickupWeapon->GetClass());
+	NewWeapon->SetIsReplicated(true);
+	NewWeapon->WeaponData = PickupWeapon->WeaponData;
+	NewWeapon->RegisterComponent();
+	if (!NewWeapon->AttachWeapon(Character))
 	{
 		ClientUndoPickUp(HitActor);
 		return;
 	}
 
-	WeaponInventory.Add(PickupWeapon);
+	WeaponInventory.Add(NewWeapon);
 	SwitchWeapon(WeaponInventory.Num() - 1);
+	SyncWeaponSlots();
 
 	if (PickUp)
 	{
@@ -406,9 +408,6 @@ void UWeaponInventoryComponent::ServerPickUpWeapon_Implementation(AActor* HitAct
 	HitActor->ForceNetUpdate();
 
 	MulticastOnPickUp(HitActor);
-	ClientSyncWeaponAmmo(WeaponIndex, PickupWeapon->CurrentAmmo, PickupWeapon->SpareAmmo);
-
-
 }
 
 void UWeaponInventoryComponent::ClientUndoPickUp_Implementation(AActor* HitActor)
@@ -578,9 +577,14 @@ void UWeaponInventoryComponent::ServerReloadWeapon_Implementation(int32 InWeapon
 	Weapon->ReplicatedSpareAmmo -= ToReload;
 	Weapon->CurrentAmmo = Weapon->ReplicatedCurrentAmmo;
 	Weapon->SpareAmmo = Weapon->ReplicatedSpareAmmo;
+	RefreshSlotAmmo(Weapon);
 	Weapon->OnAmmoChanged.Broadcast(Weapon->CurrentAmmo, Weapon->SpareAmmo);
 
-
+	// 纯客户端换弹走 ServerReloadWeapon（Listen Server 主机在 Reload() 的 HasAuthority 分支已广播），此处补一次广播
+	if (Character)
+	{
+		Character->MulticastPlayThirdPersonMontage(Character->ThirdPersonReloadMontage);
+	}
 }
 
 // ===== 购买系统 =====
@@ -616,7 +620,7 @@ int32 UWeaponInventoryComponent::GrantWeapon(TSubclassOf<UTP_WeaponComponent> We
 
 	WeaponInventory[TargetSlot] = NewWeapon;
 	SwitchWeapon(TargetSlot);
-	ClientSyncWeaponAmmo(WeaponIndex, NewWeapon->CurrentAmmo, NewWeapon->SpareAmmo);
+	SyncWeaponSlots();
 	return TargetSlot;
 }
 
@@ -653,4 +657,5 @@ void UWeaponInventoryComponent::RemoveWeaponSlot(int32 RemoveIndex)
 		else
 			WeaponIndex = 0; // 无武器可用，重置索引
 	}
+	SyncWeaponSlots();
 }
