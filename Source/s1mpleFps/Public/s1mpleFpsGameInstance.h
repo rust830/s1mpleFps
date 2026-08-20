@@ -18,13 +18,16 @@ public:
 	virtual void Init() override;
 
 	UFUNCTION(BlueprintCallable)
-	void HostGame(const FString& SessionName, int32 MaxPlayers, bool bIsLAN);
+	void HostGame(const FString& SessionName,const FString& LobbyName, int32 MaxPlayers, bool bIsLAN);
 	UFUNCTION(BlueprintCallable)
 	void FindSession(int32 MaxSearchResults, bool bIsLAN);
 	UFUNCTION(BlueprintCallable)
 	void JoinSession(int32 SessionIndex);
 	UFUNCTION(BlueprintCallable)
 	void LeaveSession();
+
+	UFUNCTION(BlueprintCallable)
+	void SetSessionJoinable(bool bJoinable);
 
 	UFUNCTION(BlueprintCallable)
 	int32 GetSessionCount() const;

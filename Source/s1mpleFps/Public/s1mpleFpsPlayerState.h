@@ -8,6 +8,13 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnScoreChanged, int32, Kills, int32, Deaths, int32, Scores);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMoneyChanged, int32, Money);
+
+UENUM(BlueprintType)
+enum class ETeam :uint8 {
+	None,
+	Blue,
+	Red
+};
 UCLASS()
 class S1MPLEFPS_API As1mpleFpsPlayerState : public APlayerState
 {
@@ -21,14 +28,18 @@ public:
 	int32 Scores = 0;
 	UPROPERTY(ReplicatedUsing=OnRep_Money,BlueprintReadOnly)
 	int32 Money = 1000;
-
+	/*ID(暂时废弃), 没必要
 	UPROPERTY(Replicated, BlueprintReadOnly)
-	int32 TeamId = 0;
+	int32 TeamId = 0;*/
+	UPROPERTY(ReplicatedUsing=OnRep_Team,BlueprintReadOnly)
+	ETeam Team = ETeam::None;
 
 	UPROPERTY(BlueprintAssignable)
 	FOnScoreChanged OnScoreChanged;
 	UPROPERTY(BlueprintAssignable)
 	FOnMoneyChanged OnMoneyChanged;
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnTeamChanged(ETeam NewTeam);
 
 	// 连杀/连死（蓝图只读）
 	UPROPERTY(Replicated, BlueprintReadOnly)
@@ -59,4 +70,7 @@ private:
 	void OnRep_Scores();
 	UFUNCTION()
 	void OnRep_Money();
+
+	UFUNCTION()
+	void OnRep_Team();
 };
