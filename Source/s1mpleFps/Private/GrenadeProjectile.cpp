@@ -14,8 +14,8 @@ AGrenadeProjectile::AGrenadeProjectile()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
-	// 网络带宽优化：手雷降低复制频率与相关距离
-	NetUpdateFrequency = 1.0f;
+	// 网络带宽优化：手雷只按距离相关（50m 内才复制）。
+	// 注意：不要降 NetUpdateFrequency——手雷飞行/弹跳位置变化快，低频复制会让 2P 客户端看到离散的断点轨迹
 	bAlwaysRelevant = false;
 	NetCullDistanceSquared = 5000.0f * 5000.0f; // 约 50m
 	CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));

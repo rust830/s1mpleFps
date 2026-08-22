@@ -17,8 +17,8 @@ As1mpleFpsProjectile::As1mpleFpsProjectile()
 {    
 	bReplicates = true;
 	bNetTemporary = true;
-	// 网络带宽优化：子弹短命且命中判定在服务端，降低复制频率与相关距离
-	NetUpdateFrequency = 1.0f;
+	// 网络带宽优化：子弹短命且命中判定在服务端，按距离相关即可。
+	// 不降 NetUpdateFrequency——子弹速度 3000u/s，低频复制会在客户端瞬移
 	bAlwaysRelevant = false;
 	NetCullDistanceSquared = 5000.0f * 5000.0f; // 约 50m
 	// Use a sphere as a simple collision representation
