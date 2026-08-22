@@ -20,7 +20,7 @@ void Us1mpleFpsGameInstance::Init()
 	}
 }
 
-void Us1mpleFpsGameInstance::HostGame(const FString& SessionName, int32 MaxPlayers, bool bIsLAN)
+void Us1mpleFpsGameInstance::HostGame(const FString& SessionName,const FString& LobbyName, int32 MaxPlayers, bool bIsLAN)
 {
 	
 
@@ -43,7 +43,7 @@ void Us1mpleFpsGameInstance::HostGame(const FString& SessionName, int32 MaxPlaye
 	Settings->bAllowJoinInProgress = true;
 	Settings->NumPublicConnections = MaxPlayers;
 	Settings->Set(FName(TEXT("MAPNAME")), SessionName, EOnlineDataAdvertisementType::ViaOnlineService);
-	TravelMapName = SessionName;
+	TravelMapName = LobbyName;
 
 	SessionInterface->CreateSession(0, NAME_GameSession, *Settings);
 }
@@ -98,6 +98,16 @@ void Us1mpleFpsGameInstance::LeaveSession()
 	SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(DestroyDelegate);
 
 	SessionInterface->DestroySession(NAME_GameSession);
+}
+
+void Us1mpleFpsGameInstance::SetSessionJoinable(bool bJoinable)
+{
+	if (!SessionInterface.IsValid())return;
+	FOnlineSessionSettings* SessionSettings = SessionInterface->GetSessionSettings(NAME_GameSession);
+	if (SessionSettings) {
+		SessionSettings->bAllowJoinInProgress=bJoinable;
+		SessionInterface->UpdateSession(NAME_GameSession, *SessionSettings, true);
+	}
 }
 
 void Us1mpleFpsGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)

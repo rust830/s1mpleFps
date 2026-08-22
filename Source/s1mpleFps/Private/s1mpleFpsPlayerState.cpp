@@ -14,7 +14,8 @@ void As1mpleFpsPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(As1mpleFpsPlayerState, Money);
 	DOREPLIFETIME_CONDITION(As1mpleFpsPlayerState, KillStreak, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(As1mpleFpsPlayerState, DeathStreak, COND_OwnerOnly);
-	DOREPLIFETIME(As1mpleFpsPlayerState, TeamId);
+	//DOREPLIFETIME(As1mpleFpsPlayerState, TeamId);
+	DOREPLIFETIME(As1mpleFpsPlayerState, Team);
 }
 
 void As1mpleFpsPlayerState::OnRep_Kills()
@@ -35,6 +36,11 @@ void As1mpleFpsPlayerState::OnRep_Scores()
 void As1mpleFpsPlayerState::OnRep_Money()
 {
 	OnMoneyChanged.Broadcast(Money);
+}
+
+void As1mpleFpsPlayerState::OnRep_Team()
+{
+	OnTeamChanged(Team);
 }
 
 void As1mpleFpsPlayerState::AddKill()
