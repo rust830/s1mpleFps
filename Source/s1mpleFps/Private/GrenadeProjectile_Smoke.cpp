@@ -19,7 +19,7 @@ void AGrenadeProjectile_Smoke::NetMulticastSmokeEffect_Implementation(FVector Lo
 
         UParticleSystemComponent* PSC = UGameplayStatics::SpawnEmitterAtLocation(
             GetWorld(),Effect,
-            Location, FRotator::ZeroRotator, FVector(Radius / 100.0f), // ��������ƥ��뾶
+            Location, FRotator::ZeroRotator, FVector(Radius / 100.0f), // 粒子缩放以匹配烟雾半径
             true, EPSCPoolMethod::AutoRelease);
         if (PSC)
         {

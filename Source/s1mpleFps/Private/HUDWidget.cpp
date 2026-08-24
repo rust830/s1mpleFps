@@ -7,34 +7,60 @@
 #include "TimerManager.h"
 #include "s1mpleFpsCharacter.h"
 #include "HealthComponent.h"
+#include "HealthData.h"
 #include "WeaponInventoryComponent.h"
 #include "DamageComponent.h"
 #include "ArmorData.h"
 #include "WeaponData.h"
 #include "GrenadeComponent.h"
 #include "GrenadeData.h"
+#include "GrenadeSlotEntry.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/SizeBox.h"
+#include "s1mpleFpsGameInstance.h"
 #include "GameFramework/PlayerState.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Blueprint/WidgetTree.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Styling/AppStyle.h"
+#include "Styling/CoreStyle.h"  
+#include "Engine/Font.h"        
 
 
 struct FKillPlayParams {
-	 FString KillerName;
-	 FString VictimName;
-	 FKillPlayParams(const FString& InKillerName, const FString& InVictimName):KillerName(InKillerName),VictimName(InVictimName){}
+	FString KillerName;
+	FString VictimName;
+	ETeam KillerTeam;   // 击杀者队伍：蓝图据此做不同队伍的不同播报效果
+	FKillPlayParams(const FString& InKillerName, const FString& InVictimName, ETeam InKillerTeam)
+		: KillerName(InKillerName), VictimName(InVictimName), KillerTeam(InKillerTeam) {
+	}
 };
+
 void UHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	
+	CustomFont = LoadObject<UFont>(nullptr, TEXT("/Game/FirstPerson/Blueprints/Doors/Cinzel-VariableFont_wght_Font.Cinzel-VariableFont_wght_Font"));
+	if (CustomFont)
+	{
+		CustomFontInfo = CustomFont->GetLegacySlateFontInfo(); // 无参数获取字体信息
+		CustomFontInfo.Size = 14;                             // 手动设置默认大小
+	}
+	else
+	{
+		// 加载失败时回退到引擎默认字体
+		CustomFontInfo = FCoreStyle::GetDefaultFontStyle("Regular", 14);
+		UE_LOG(LogTemp, Warning, TEXT("Custom font not found, using default."));
+	}
 
 	HitMarkerAlpha = 0.0f;
 	HitMarkerDuration = 0.0f;
 	bHitMarkerIsEnemy = false;
 	//硬编码颜色
-	HealthGreen  = FLinearColor(0.061f, 0.729f, 0.218f); 
-	HealthYellow = FLinearColor(0.963f, 0.516f, 0.019f); 
-	HealthRed    = FLinearColor(0.786f, 0.042f, 0.056f);
+	HealthGreen = FLinearColor(0.08f, 0.01f, 0.005f);
+	HealthYellow = FLinearColor(0.25f, 0.04f, 0.02f);
+	HealthRed = FLinearColor(0.35f, 0.05f, 0.03f);
 
 	// Default text values - prevents "Text Block" placeholder
 	if (AmmoText) AmmoText->SetText(FText::FromString(TEXT("0 / 0")));
@@ -62,10 +88,12 @@ void UHUDWidget::NativeConstruct()
 	if (ScoreboardPanel) ScoreboardPanel->SetVisibility(ESlateVisibility::Collapsed);
 	if (AmmoText) AmmoText->SetVisibility(ESlateVisibility::Hidden);
 	if (HealingText) HealingText->SetVisibility(ESlateVisibility::Hidden);
+	if (MedicineIconImage) MedicineIconImage->SetVisibility(ESlateVisibility::Hidden);
+	if (MedicineCountText) MedicineCountText->SetVisibility(ESlateVisibility::Hidden);
 	if (HealingRingImage)
 	{
 		HealingRingImage->SetVisibility(ESlateVisibility::Hidden);
-		// 临时调试：去掉 tint，排除颜色叠加导致不可见的可能（与 CookingRing 保持一致）
+		
 		// HealingRingImage->SetColorAndOpacity(HealingRingColor);
 		if (HealingRingBaseMaterial)
 		{
@@ -75,9 +103,8 @@ void UHUDWidget::NativeConstruct()
 		}
 	}
 
-	// Grenade UI — hidden initially, shown when player has grenades; cooking only shown during cooking
-	if (GrenadeIconImage) GrenadeIconImage->SetVisibility(ESlateVisibility::Hidden);
-	if (GrenadeCountText) GrenadeCountText->SetVisibility(ESlateVisibility::Hidden);
+	// Grenade UI — 槽位按背包动态生成（初始清空）；cooking 只在烹饪时显示
+	if (GrenadeSlotBox) GrenadeSlotBox->ClearChildren();
 	if (CookingTimeText) CookingTimeText->SetVisibility(ESlateVisibility::Hidden);
 	if (CookingRingImage)
 	{
@@ -95,6 +122,8 @@ void UHUDWidget::NativeConstruct()
 	if (LeaveButton) LeaveButton->OnClicked.AddDynamic(this, &UHUDWidget::LeaveMatch);
 	if (MatchEndPanel) MatchEndPanel->SetVisibility(ESlateVisibility::Collapsed);
 
+
+	if (DoorPromptText)DoorPromptText->SetVisibility(ESlateVisibility::Collapsed);
 	// Try initial bind - may fail on clients if PlayerState hasn't replicated yet
 	TryBindPlayerState();
 }
@@ -152,19 +181,23 @@ void UHUDWidget::TryBindPlayerState()
 		if (As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>()) {
 			GS->OnWarmUpTimeChanged.AddDynamic(this, &UHUDWidget::OnWarmUpReceived);
 			bWarmUpBound = true;
-			
+
 		}
 	}
 	if (!bChatMessageBound) {
 		if (As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>()) {
 			GS->OnMessageReceived.AddDynamic(this, &UHUDWidget::OnChatMessageReceived);
 			bChatMessageBound = true;
-			
+
 		}
 	}
 	if (!bGrenadeBound)
 	{
 		BindToGrenadeComponent();
+	}
+	if (!bHealthBound)
+	{
+		BindToHealthComponent();
 	}
 }
 
@@ -192,7 +225,7 @@ void UHUDWidget::OnEntryTimerElapsed(UUserWidget* Entry)
 
 void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill)
 {
-	
+
 	APlayerController* PC = GetOwningPlayer();
 	if (!PC)return;
 	if (As1mpleFpsCharacter* Character = Cast<As1mpleFpsCharacter>(PC->GetPawn())) {
@@ -207,20 +240,20 @@ void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill
 
 	if (MatchEndResultText)
 	{
-		MatchEndResultText->SetText(FText::FromString(bIsWinner ? TEXT("胜利") : TEXT("失败")));
+		MatchEndResultText->SetText(FText::FromString(bIsWinner ? TEXT("TRIUMPH") : TEXT("LOST TO BLADE")));
 	}
 
 	if (MatchEndInfoText)
 	{
-		FString Reason = bWinByKill ? TEXT("到达击杀上限") : TEXT("时间结束");
-		FString Info = FString::Printf(TEXT("胜者：%s（%s）"), *WinnerName, *Reason);
+		FString Reason = bWinByKill ? TEXT("BLOODSHED DONE") : TEXT("THE FINAL BELL");
+		FString Info = FString::Printf(TEXT("WHO PREVAIL %s（%s）"), *WinnerName, *Reason);
 		MatchEndInfoText->SetText(FText::FromString(Info));
 	}
 	PC->bShowMouseCursor = true;
 	FInputModeUIOnly InputMode;
 	InputMode.SetWidgetToFocus(TakeWidget());
 	PC->SetInputMode(InputMode);
-	
+
 }
 
 void UHUDWidget::OnSuddenDeathReceived()
@@ -232,7 +265,7 @@ void UHUDWidget::OnSuddenDeathReceived()
 
 void UHUDWidget::OnWarmUpReceived(float WarmUpTimeRemaining)
 {
-	
+
 	if (!WarmUpCountdownText) return;
 
 	if (WarmUpTimeRemaining > 0.f)
@@ -246,12 +279,12 @@ void UHUDWidget::OnWarmUpReceived(float WarmUpTimeRemaining)
 		// 0.8 秒后自动隐藏
 		GetWorld()->GetTimerManager().ClearTimer(WarmUpHideHandle);
 		GetWorld()->GetTimerManager().SetTimer(WarmUpHideHandle, [this]()
-		{
-			if (WarmUpCountdownText)
 			{
-				WarmUpCountdownText->SetVisibility(ESlateVisibility::Collapsed);
-			}
-		}, WarmUpDisplayTime, false);
+				if (WarmUpCountdownText)
+				{
+					WarmUpCountdownText->SetVisibility(ESlateVisibility::Collapsed);
+				}
+			}, WarmUpDisplayTime, false);
 	}
 }
 
@@ -263,8 +296,8 @@ void UHUDWidget::OnOvertimeReceived(float OvertimeRemaining)
 	int32 Seconds = FMath::FloorToInt32(FMath::Fmod(OvertimeRemaining, 60.0f));
 
 	FText TimeText = (Seconds < 10)
-		? FText::Format(FText::FromString(TEXT("加时赛-争者留其名!\n {0}:0{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds))
-		: FText::Format(FText::FromString(TEXT("加时赛-争者留其名!\n {0}:{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds));
+		? FText::Format(FText::FromString(TEXT("NOW OR NEVER LAST CHANCE TO TURN THE TIDE\n {0}:0{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds))
+		: FText::Format(FText::FromString(TEXT("NOW OR NEVER LAST CHANCE TO TURN THE TIDE\n {0}:{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds));
 
 	MatchTimeText->SetText(TimeText);
 
@@ -285,7 +318,8 @@ void UHUDWidget::RestartMatch()
 
 void UHUDWidget::LeaveMatch()
 {
-	UGameplayStatics::OpenLevel(this, TEXT("StartMap"));
+	// 短名 → 全路径（打包后 OpenLevel 不认短名，会回退到默认地图）
+	UGameplayStatics::OpenLevel(this, FName(*Us1mpleFpsGameInstance::ResolveMapPath(TEXT("StartMap"))));
 }
 
 void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -293,7 +327,7 @@ void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
 	// Retry binding if PlayerState/GameState wasn't ready during NativeConstruct
-	if (!bPlayerStateBound || !bGameStateBound||!bKillPlayBound||!bMatchEndBound||!bSuddenDeathBound||!bOvertimeBound||!bWarmUpBound||!bChatMessageBound||!bGrenadeBound)
+	if (!bPlayerStateBound || !bGameStateBound || !bKillPlayBound || !bMatchEndBound || !bSuddenDeathBound || !bOvertimeBound || !bWarmUpBound || !bChatMessageBound || !bGrenadeBound || !bHealthBound)
 	{
 		TryBindPlayerState();
 	}
@@ -351,7 +385,7 @@ void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 void UHUDWidget::OnChatMessageReceived(const FString& Sender, const FString& Message, bool bIsTeam)
 {
-	
+
 	if (!ChatMessageBox) return;
 	if (Sender.IsEmpty() || Message.IsEmpty()) return;
 
@@ -369,7 +403,7 @@ void UHUDWidget::OnChatMessageReceived(const FString& Sender, const FString& Mes
 		ChatMessageBox->RemoveChildAt(0);
 	}
 
-	const FString Prefix = bIsTeam ? TEXT("[队聊] ") : TEXT("");
+	const FString Prefix = bIsTeam ? TEXT("[Team] ") : TEXT("");
 	const FString FullText = Prefix + Sender + TEXT(": ") + Message;
 	const FLinearColor TeamChatBlue = FLinearColor(0.133f, 0.452f, 1.0f); // #66B2FF
 	const FLinearColor Color = bIsTeam ? TeamChatBlue : FLinearColor::White;
@@ -378,8 +412,9 @@ void UHUDWidget::OnChatMessageReceived(const FString& Sender, const FString& Mes
 	TextEntry->SetText(FText::FromString(FullText));
 	TextEntry->SetColorAndOpacity(FSlateColor(Color));
 
-	FSlateFontInfo Font = TextEntry->GetFont();
-	Font.Size = 14;
+	
+	FSlateFontInfo Font = CustomFontInfo;               // 从缓存的字体信息复制
+	Font.Size = 14;                                     // 保持原有大小
 	Font.OutlineSettings.OutlineSize = 1;
 	Font.OutlineSettings.OutlineColor = FLinearColor::Black;
 	TextEntry->SetFont(Font);
@@ -391,13 +426,13 @@ void UHUDWidget::OnChatMessageReceived(const FString& Sender, const FString& Mes
 
 	FTimerHandle RemoveHandle;
 	GetWorld()->GetTimerManager().SetTimer(RemoveHandle, [this, TextEntry]()
-	{
-		if (ChatMessageBox && TextEntry)
 		{
-			ChatMessageBox->RemoveChild(TextEntry);
-		}
-		ChatEntryTimerMap.Remove(TextEntry);
-	}, ChatMessageLifetime, false);
+			if (ChatMessageBox && TextEntry)
+			{
+				ChatMessageBox->RemoveChild(TextEntry);
+			}
+			ChatEntryTimerMap.Remove(TextEntry);
+		}, ChatMessageLifetime, false);
 	ChatEntryTimerMap.Add(TextEntry, RemoveHandle);
 }
 
@@ -453,7 +488,7 @@ void UHUDWidget::PlayHitMarker(bool bIsEnemy)
 
 void UHUDWidget::UpdateHealthDisplay(float CurrentHealth, float MaxHealth)
 {
-	
+
 	float Percent = MaxHealth > 0.0f ? FMath::Clamp(CurrentHealth / MaxHealth, 0.0f, 1.0f) : 0.0f;
 
 	if (HealthBar)
@@ -476,7 +511,7 @@ void UHUDWidget::UpdateHealthDisplay(float CurrentHealth, float MaxHealth)
 
 void UHUDWidget::UpdateAmmoDisplay(int32 CurrentAmmo, int32 SpareAmmo)
 {
-	
+
 	if (AmmoText)
 		AmmoText->SetText(FText::Format(FText::FromString(TEXT("{0} / {1}")),
 			FText::AsNumber(CurrentAmmo), FText::AsNumber(SpareAmmo)));
@@ -489,7 +524,7 @@ void UHUDWidget::UpdateHealingDisplay(bool bIsHealing, float Duration)
 		bIsHealingActive = true;
 		HealingEndTime = GetWorld()->GetTimeSeconds() + Duration;
 		HealingTotalDuration = Duration;
-		
+
 		if (HealingRingImage)
 		{
 			HealingRingImage->SetVisibility(ESlateVisibility::Visible);
@@ -525,7 +560,7 @@ void UHUDWidget::UpdateEquipmentDisplay()
 	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(PC->GetPawn());
 	if (!Char) return;
 
-	
+
 
 	// Weapon name
 	if (WeaponNameText)
@@ -594,7 +629,7 @@ void UHUDWidget::BindToGrenadeComponent()
 	OnGrenadeInventoryChanged();
 
 	bGrenadeBound = true;
-	
+
 }
 
 void UHUDWidget::OnGrenadeEquippedChanged()
@@ -621,15 +656,72 @@ void UHUDWidget::OnGrenadeEquippedChanged()
 
 void UHUDWidget::OnGrenadeInventoryChanged()
 {
+	// 背包增删（捡雷/扔完）与选中切换（Next/Prev）都会广播这里，统一重建槽位列表
+	RefreshGrenadeSlots();
+}
+
+void UHUDWidget::BindToHealthComponent()
+{
 	APlayerController* PC = GetOwningPlayer();
 	if (!PC) return;
 	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(PC->GetPawn());
-	if (!Char) return;
-	UGrenadeComponent* GC = Char->FindComponentByClass<UGrenadeComponent>();
-	if (!GC) return;
+	if (!Char || !Char->HealthComponent) return;
 
-	UGrenadeData* Data = GC->GetCurrnetGrenade();
-	UpdateGrenadeDisplay(Data, GC->HasGrenade() ? GC->GrenadeAmounts[GC->CurrentGrenadeIndex] : 0);
+	Char->HealthComponent->OnHealthItemsChanged.AddDynamic(this, &UHUDWidget::OnHealthItemsChanged);
+
+	// 初始刷新
+	OnHealthItemsChanged();
+
+	bHealthBound = true;
+}
+
+void UHUDWidget::OnHealthItemsChanged()
+{
+	RefreshMedicineDisplay();
+}
+
+void UHUDWidget::RefreshMedicineDisplay()
+{
+	APlayerController* PC = GetOwningPlayer();
+	if (!PC) return;
+	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(PC->GetPawn());
+	if (!Char || !Char->HealthComponent) return;
+
+	UHealthComponent* HC = Char->HealthComponent;
+	const bool bHas = HC->HealthTypes.IsValidIndex(0) && HC->HealthAmount.IsValidIndex(0) && HC->HealthAmount[0] > 0;
+
+	if (MedicineIconImage)
+	{
+		if (bHas && HC->HealthTypes[0] && HC->HealthTypes[0]->Icon)
+		{
+			MedicineIconImage->SetBrushFromTexture(HC->HealthTypes[0]->Icon);
+			MedicineIconImage->SetDesiredSizeOverride(MedicineIconSize);
+			// 防止 CanvasPanel 里图标被贴图原始分辨率撑大
+			if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(MedicineIconImage->Slot))
+			{
+				CanvasSlot->SetAutoSize(false);
+				CanvasSlot->SetSize(MedicineIconSize);
+			}
+			MedicineIconImage->SetVisibility(ESlateVisibility::Visible);
+		}
+		else
+		{
+			MedicineIconImage->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+
+	if (MedicineCountText)
+	{
+		if (bHas)
+		{
+			MedicineCountText->SetText(FText::AsNumber(HC->HealthAmount[0]));
+			MedicineCountText->SetVisibility(ESlateVisibility::Visible);
+		}
+		else
+		{
+			MedicineCountText->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
 }
 
 void UHUDWidget::OnGrenadeCookingStarted()
@@ -639,21 +731,44 @@ void UHUDWidget::OnGrenadeCookingStarted()
 	if (CookingRingImage) CookingRingImage->SetVisibility(ESlateVisibility::Visible);
 }
 
-void UHUDWidget::UpdateGrenadeDisplay(UGrenadeData* Data, int32 Count)
+void UHUDWidget::RefreshGrenadeSlots()
 {
-	const bool bHasGrenade = Count > 0;
-	const ESlateVisibility Vis = bHasGrenade ? ESlateVisibility::Visible : ESlateVisibility::Hidden;
+	APlayerController* PC = GetOwningPlayer();
+	if (!PC) return; 
+	As1mpleFpsCharacter* Char = Cast<As1mpleFpsCharacter>(PC->GetPawn());
+	if (!Char)  return; 
+	UGrenadeComponent* GC = Char->FindComponentByClass<UGrenadeComponent>();
+	if (!GC) return; 
 
-	if (GrenadeIconImage)
+	if (!GrenadeSlotBox)  return; 
+	if (!GrenadeSlotEntryClass) return; 
+
+	// 动态按背包重建：只生成拥有的种类，空槽自然不出现（无空隙、自动重排）
+	GrenadeSlotBox->ClearChildren();
+
+	
+
+	for (int32 i = 0; i < GC->GrenadeTypes.Num(); ++i)
 	{
-		if (bHasGrenade && Data && Data->GrenadeIcon)
-			GrenadeIconImage->SetBrushFromTexture(Data->GrenadeIcon);
-		GrenadeIconImage->SetVisibility(Vis);
-	}
-	if (GrenadeCountText)
-	{
-		GrenadeCountText->SetText(FText::AsNumber(Count));
-		GrenadeCountText->SetVisibility(Vis);
+		UGrenadeSlotEntry* Entry = CreateWidget<UGrenadeSlotEntry>(this, GrenadeSlotEntryClass);
+		if (!Entry)  continue; 
+
+		const int32 Amount = GC->GrenadeAmounts.IsValidIndex(i) ? GC->GrenadeAmounts[i] : 0;
+		Entry->SetupSlot(GC->GrenadeTypes[i], Amount, i == GC->CurrentGrenadeIndex);
+
+		// WBP_GrenadeSlot 根是 CanvasPanel（不自报尺寸），用 SizeBox 强制每个槽位为 GrenadeSlotSize，
+		// 再用 Automatic 让 HorizontalBox 按此尺寸排布（不拉伸、不塌缩）。
+		USizeBox* SizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		SizeBox->SetWidthOverride(GrenadeSlotSize.X);
+		SizeBox->SetHeightOverride(GrenadeSlotSize.Y);
+		SizeBox->AddChild(Entry);
+
+		if (UHorizontalBoxSlot* BoxSlot = GrenadeSlotBox->AddChildToHorizontalBox(SizeBox))
+		{
+			BoxSlot->SetSize(ESlateSizeRule::Automatic);
+			BoxSlot->SetHorizontalAlignment(HAlign_Center);
+			BoxSlot->SetVerticalAlignment(VAlign_Center);
+		}
 	}
 }
 
@@ -720,7 +835,7 @@ void UHUDWidget::UpdateMatchTimeDisplay(float TimeRemaining)
 		(Seconds < 10 ? FText::Format(FText::FromString(TEXT("0{0}")), FText::AsNumber(Seconds)) : FText::AsNumber(Seconds))));
 }
 
-void UHUDWidget::OnKillPlayReceived(const FString& KillerName, const FString& VictimName)
+void UHUDWidget::OnKillPlayReceived(const FString& KillerName, const FString& VictimName, ETeam KillerTeam)
 {
 	if (!KillPlayBox || !KillPlayEntryClass) return;
 	if (KillPlayBox->GetChildrenCount() >= MaxKillPlayEntries) {
@@ -735,18 +850,58 @@ void UHUDWidget::OnKillPlayReceived(const FString& KillerName, const FString& Vi
 	UFunction* SetFunction = Entry->FindFunction(FName("SetKillInfo"));
 	if (SetFunction)
 	{
-		FKillPlayParams Params(KillerName, VictimName);
+		FKillPlayParams Params(KillerName, VictimName, KillerTeam);
 		Entry->ProcessEvent(SetFunction, &Params);
 	}
 	else
 	{
-		
+
 	}
 	KillPlayBox->AddChildToVerticalBox(Entry);
 	FTimerHandle FOnKillPlayHandle;
 	GetWorld()->GetTimerManager().SetTimer(FOnKillPlayHandle, [this, Entry]() {RemoveEntryInterval(Entry);}, KillPlayLifetime, false);
 	EntryTimerMap.Add(Entry, FOnKillPlayHandle);
 
+}
+
+void UHUDWidget::SetInteractionPrompt(bool bShow, const FString& Text)
+{
+	if (!DoorPromptText)return;
+	if (bShow) {
+		DoorPromptText->SetText(FText::FromString(Text));
+		DoorPromptText->SetVisibility(ESlateVisibility::Visible);
+	}
+	else {
+		DoorPromptText->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+FLinearColor UHUDWidget::ResolveKillFeedColor(ETeam KillerTeam) const
+{
+	if (KillerTeam == ETeam::None) return FLinearColor::White;
+
+	EKillFeedColorMode Mode = EKillFeedColorMode::FixedByTeam;
+	if (As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>())
+	{
+		Mode = GS->KillFeedColorMode;
+	}
+
+	// 模式一：按击杀者实际队伍（蓝队→蓝、红队→红）
+	if (Mode == EKillFeedColorMode::FixedByTeam)
+	{
+		return (KillerTeam == ETeam::Blue) ? KillFeedBlueColor : KillFeedRedColor;
+	}
+
+	// 模式二：相对观看者（自己队→蓝、敌方→红）
+	ETeam MyTeam = ETeam::None;
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (As1mpleFpsPlayerState* PS = PC->GetPlayerState<As1mpleFpsPlayerState>())
+		{
+			MyTeam = PS->Team;
+		}
+	}
+	return (KillerTeam == MyTeam) ? KillFeedBlueColor : KillFeedRedColor;
 }
 
 void UHUDWidget::ToggleScoreboard()
@@ -779,7 +934,7 @@ void UHUDWidget::RefreshScoreboard()
 	TArray<APlayerState*> Players = GS->PlayerArray;
 	Players.Sort([](const APlayerState& A, const APlayerState& B) {
 		return A.GetScore() > B.GetScore();
-	});
+		});
 
 	for (APlayerState* Entry : Players)
 	{
@@ -797,7 +952,8 @@ void UHUDWidget::RefreshScoreboard()
 		RowText->SetJustification(ETextJustify::Left);
 		RowText->SetColorAndOpacity(FSlateColor(FLinearColor(0.772f, 0.786f, 0.824f))); // #E4E6EB
 
-		FSlateFontInfo Font = RowText->GetFont();
+		
+		FSlateFontInfo Font = CustomFontInfo;
 		Font.Size = 14;
 		Font.OutlineSettings.OutlineSize = 1;
 		Font.OutlineSettings.OutlineColor = FLinearColor::Black;

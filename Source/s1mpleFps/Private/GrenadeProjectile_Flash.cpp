@@ -58,7 +58,7 @@ void AGrenadeProjectile_Flash::ApplyFlashEffect()
 		float Intensity = FMath::Clamp(TotalScale * GrenadeData->FlashIntensityScale, 0.0f, 1.0f);
 		float Duration = GrenadeData->FlashDuration * FMath::Clamp(0.5f + 0.5f * TotalScale, 0.0f, 1.0f);
 
-		// Client RPC�����͵������
+		// 通过 Client RPC 发给对应玩家
 		APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
 		if (PC)
 		{

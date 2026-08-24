@@ -7,12 +7,15 @@
 #include "Components/ProgressBar.h"
 #include "Components/CanvasPanel.h"
 #include "Components/VerticalBox.h"
+#include "Components/HorizontalBox.h"
 #include "Components/Button.h"
+#include "s1mpleFpsPlayerState.h"
 #include "HUDWidget.generated.h"
 
 class UTP_WeaponComponent;
 class UGrenadeComponent;
 class UGrenadeData;
+class UGrenadeSlotEntry;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 
@@ -65,12 +68,30 @@ public:
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* HealingText;
 
-	// --- Grenade UI ---
+	// --- 药品图标 + 数量（常驻显示，类似手雷槽） ---
 	UPROPERTY(meta = (BindWidget))
-	UImage* GrenadeIconImage;
+	UImage* MedicineIconImage;
 
 	UPROPERTY(meta = (BindWidget))
-	UTextBlock* GrenadeCountText;
+	UTextBlock* MedicineCountText;
+
+	// 药品图标渲染尺寸（像素），配合 SetDesiredSizeOverride 防止被贴图分辨率撑大
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Healing")
+	FVector2D MedicineIconSize = FVector2D(40.f, 40.f);
+
+	// --- Grenade UI ---
+	// 手雷槽容器（横向排布，按背包拥有的种类动态生成条目）
+	UPROPERTY(meta = (BindWidget))
+	UHorizontalBox* GrenadeSlotBox;
+
+	// 单个手雷槽的 Widget 类（图标 + 数量 + 选中高亮）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grenade")
+	TSubclassOf<UGrenadeSlotEntry> GrenadeSlotEntryClass;
+
+	// 单个手雷槽的固定尺寸（像素）。WBP_GrenadeSlot 根若是 CanvasPanel 无法自定尺寸，
+	// 由这里用 SizeBox 在代码里强制槽位大小。改这里即可调整图标大小。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grenade")
+	FVector2D GrenadeSlotSize = FVector2D(40.f, 40.f);
 
 	UPROPERTY(meta = (BindWidget))
 	UImage* CookingRingImage;
@@ -84,7 +105,6 @@ public:
 	UPROPERTY()
 	UMaterialInstanceDynamic* CookingRingMaterial;
 
-	// --- 打药进度环 UI（复用 M_CookingRing 材质） ---
 	UPROPERTY(meta = (BindWidget))
 	UImage* HealingRingImage;
 
@@ -93,13 +113,13 @@ public:
 
 	UPROPERTY()
 	UMaterialInstanceDynamic* HealingRingMaterial;
+	UPROPERTY(EditAnywhere,BlueprintReadWrite)
+	UFont* CustomFont;
 
-	// 打药环颜色（白色环 × 此 tint = 目标颜色，材质复用 M_CookingRing 不用复制）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Healing")
-	FLinearColor HealingRingColor = FLinearColor(0.0f, 1.0f, 0.5f, 1.0f);
-
-	UFUNCTION(BlueprintCallable)
-	void UpdateGrenadeDisplay(UGrenadeData* Data, int32 Count);
+	FSlateFontInfo CustomFontInfo;
+	//
+	// 重建手雷槽列表（按 GrenadeTypes/GrenadeAmounts 生成条目，并高亮 CurrentGrenadeIndex）
+	void RefreshGrenadeSlots();
 
 	UFUNCTION()
 	void OnGrenadeCookingStarted();
@@ -115,6 +135,13 @@ public:
 
 	void BindToGrenadeComponent();
 	bool bGrenadeBound = false;
+
+	// 药品图标 + 数量刷新（绑定 HealthComponent 的 OnHealthItemsChanged）
+	void RefreshMedicineDisplay();
+	void BindToHealthComponent();
+	bool bHealthBound = false;
+	UFUNCTION()
+	void OnHealthItemsChanged();
 
 	// 热身倒计时样式 — 蓝图可调，C++ 兜底字号
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WarmUp")
@@ -148,6 +175,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KillFeed")
 	TSubclassOf<UUserWidget> KillPlayEntryClass;
 
+	// 击杀条颜色（两种模式下共用：蓝=友方/蓝队，红=敌方/红队）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KillFeed")
+	FLinearColor KillFeedBlueColor = FLinearColor(0.25f, 0.6f, 1.0f, 1.0f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KillFeed")
+	FLinearColor KillFeedRedColor = FLinearColor(1.0f, 0.25f, 0.25f, 1.0f);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
 	USoundBase* OvertimeTickSound;
 
@@ -167,6 +200,9 @@ public:
 
 	UPROPERTY(meta = (BindWidget))
 	UButton* LeaveButton;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (BindWidget))
+	UTextBlock* DoorPromptText;
 	// -------------------
 
 	// --- Public functions ---
@@ -198,7 +234,10 @@ public:
 	void UpdateMatchTimeDisplay(float TimeRemaining);
 
 	UFUNCTION(BlueprintCallable)
-	void OnKillPlayReceived(const FString& KillerName, const FString& VictimName);
+	void OnKillPlayReceived(const FString& KillerName, const FString& VictimName, ETeam KillerTeam);
+
+	UFUNCTION(BlueprintCallable)
+	void SetInteractionPrompt(bool bShow, const FString& Text);
 
 	UFUNCTION()
 	void OnChatMessageReceived(const FString& Sender, const FString& Message, bool bIsTeam);
@@ -236,6 +275,7 @@ private:
 	FTimerHandle WarmUpHideHandle;
 	void RemoveEntryInterval(UUserWidget* Entry);
 	void OnEntryTimerElapsed(UUserWidget* Entry);
+	FLinearColor ResolveKillFeedColor(ETeam KillerTeam) const;
 	UFUNCTION()
 	void OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill);
 	UFUNCTION()

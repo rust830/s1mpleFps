@@ -138,6 +138,17 @@ void UGrenadeComponent::LeaveGrenadeMode()
 	UnequippedGrenade();
 }
 
+void UGrenadeComponent::TryAutoExitGrenadeMode()
+{
+	// 所有种类的手雷都扔完（GrenadeTypes 整表清空）→ 自动退出投掷模式切回枪械。
+	// 否则 bIsEquipped 会卡在 true：手拿 0 颗雷、退不出、也拿不回枪。
+	if (bIsEquipped && GrenadeTypes.Num() == 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Grenade] %s 所有手雷耗尽，自动退出投掷模式"), *GetNameSafe(OwnerCharacter));
+		UnequippedGrenade();
+	}
+}
+
 void UGrenadeComponent::ForceUnequip()
 {
 	// 死亡时强制收回，无视 bIsCooking
@@ -149,6 +160,13 @@ void UGrenadeComponent::ForceUnequip()
 	if (bIsEquipped)
 	{
 		bIsEquipped = false;
+		// 进入手雷模式时 EquippedGrenade 调了 CurrentWeapon->UnEquip()（移除了 IMC_Weapon/FireMappingContext）。
+		// 死亡路径不经过 UnequippedGrenade，必须在这里把枪重新装备回去，否则复活后枪可见但映射上下文丢失、开不了火。
+		if (OwnerCharacter && OwnerCharacter->WeaponInventoryComponent && OwnerCharacter->WeaponInventoryComponent->CurrentWeapon)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Grenade] %s 死亡时重新装备枪械"), *GetNameSafe(OwnerCharacter));
+			OwnerCharacter->WeaponInventoryComponent->CurrentWeapon->Equip();
+		}
 		OnGrenadeEquipped.Broadcast();
 		OnCookingProgressChanged.Broadcast(0.0f);
 	}
@@ -158,6 +176,12 @@ void UGrenadeComponent::EquippedGrenade()
 {
 	if (bIsEquipped || !HasGrenade())return;
 	if (!OwnerCharacter || OwnerCharacter->IsDead())return;
+
+	// 第三人称捏雷：雷挂在第一人称手臂 Mesh1P 上、第三人称看不到，直接切回第一人称
+	if (OwnerCharacter->bIsThirdPerson)
+	{
+		OwnerCharacter->ForceToFirstPerson();
+	}
 
 	bIsEquipped = true;
 	if (OwnerCharacter->WeaponInventoryComponent->CurrentWeapon)OwnerCharacter->WeaponInventoryComponent->CurrentWeapon->UnEquip();
@@ -280,6 +304,10 @@ void UGrenadeComponent::OnRep_GrenadeInventory()
 	// 服务器 RemoveAt 会缩小数组，客户端索引必须夹到有效范围，否则会指空、无法自动切到下一颗
 	CurrentGrenadeIndex = FMath::Clamp(CurrentGrenadeIndex, 0, FMath::Max(0, GrenadeTypes.Num() - 1));
 	OnGrenadeInventoryChanged.Broadcast();
+
+	// 纯客户端（含远程玩家本人）扔完最后一颗后，服务器数组变更复制到这里：
+	// OnRep 在权威端不触发，主机走 ServerThrowGrenade 里的主动退出；客户端走这里。
+	TryAutoExitGrenadeMode();
 }
 
 void UGrenadeComponent::NetMulticastThrowSound_Implementation(UGrenadeData* Data, FVector Velocity, float RemainingTime)
@@ -335,6 +363,10 @@ void UGrenadeComponent::ServerThrowGrenade_Implementation(int32 GrenadeIndex, FV
 	}
 	// 服务端(主机)也要广播刷新 HUD；远程客户端靠 OnRep_GrenadeInventory
 	OnGrenadeInventoryChanged.Broadcast();
+
+	// 主机（权威端）不会触发 OnRep_GrenadeInventory，必须在服务端主动检查：所有种类手雷都耗尽则自动退出投掷模式。
+	// 远程玩家的 bIsEquipped 在服务端恒为 false（未被复制），这里对其是空操作，由客户端的 OnRep 兜底。
+	TryAutoExitGrenadeMode();
 }
 
 FVector UGrenadeComponent::ComputeThrowVelocity()

@@ -110,6 +110,7 @@ public:
 	void LeaveGrenadeMode();
 	void ForceUnequip();  // 死亡时强制收回（无视 bIsCooking）
 	void RemoveGrenadeMappingContext();
+	void TryAutoExitGrenadeMode();  // 所有种类手雷都扔完后自动退出投掷模式、切回枪械
 
 	// 计算当前投掷初速度（高抛/低抛共用），供 PerformThrowGrenade 与落点预测复用
 	FVector ComputeThrowVelocity();
