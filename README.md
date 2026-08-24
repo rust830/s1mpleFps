@@ -123,8 +123,8 @@ Source/s1mpleFps/
 ### 构建步骤
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/rust830/s1mpleFPS.git
-cd s1mpleFPS
+git clone https://github.com/rust830/s1mpleFps.git
+cd s1mpleFps
 
 # 2. 从 Epic 商城下载免费资产（项目依赖，未纳入 Git）
 #    - Paragon: Murdock（免费角色）
