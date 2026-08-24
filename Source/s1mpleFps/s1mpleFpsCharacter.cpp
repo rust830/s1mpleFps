@@ -26,6 +26,9 @@
 #include "GrenadeComponent.h"
 #include "SettingsSubsystem.h"
 #include "Engine/GameInstance.h"
+#include "HeroData.h"
+#include "Door.h"
+#include "Net/UnrealNetwork.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -42,10 +45,11 @@ void As1mpleFpsCharacter::OnThrowGrenade(const FInputActionValue& Value)
 As1mpleFpsCharacter::As1mpleFpsCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
-	NetUpdateFrequency = 30.0f; // 网络带宽优化：角色默认 100 → 30
+	SetNetUpdateFrequency(30.0f); // 网络带宽优化：角色默认 100 → 30
 
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
+	GetCapsuleComponent()->SetGenerateOverlapEvents(true);
 
 	// Create a CameraComponent
 	FirstPersonCameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
@@ -93,11 +97,19 @@ As1mpleFpsCharacter::As1mpleFpsCharacter()
 	ThirdPersonCamera->SetupAttachment(ThirdPersonSpringArm);
 	ThirdPersonCamera->SetAutoActivate(false);
 
-	GetCharacterMovement()->CrouchedHalfHeight = 60.f;
+	GetCharacterMovement()->SetCrouchedHalfHeight(60.f);
 	GetCharacterMovement()->MaxWalkSpeedCrouched = 300.f;
 	GetCharacterMovement()->bCanWalkOffLedgesWhenCrouching = true;
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
+}
+
+void As1mpleFpsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(As1mpleFpsCharacter, SelectedHeroMesh);
+	DOREPLIFETIME(As1mpleFpsCharacter, SelectedHeroAnimClass);
+	DOREPLIFETIME(As1mpleFpsCharacter,bIsClimbing);
 }
 
 bool As1mpleFpsCharacter::IsDead() const
@@ -117,6 +129,28 @@ void As1mpleFpsCharacter::BeginPlay()
 	DefaultMeshRelativeLocation = GetMesh()->GetRelativeLocation();
 	DefaultMeshRelativeRotation = GetMesh()->GetRelativeRotation();
 
+	// 应用第三人称相机参数（BP 里调的值，写到弹簧臂/相机）
+	if (ThirdPersonSpringArm)
+	{
+		ThirdPersonSpringArm->TargetArmLength = ThirdPersonArmLength;
+		ThirdPersonSpringArm->SocketOffset = ThirdPersonSocketOffset;
+		ThirdPersonSpringArm->TargetOffset = ThirdPersonTargetOffset;
+	}
+	if (ThirdPersonCamera)
+	{
+		ThirdPersonCamera->FieldOfView = ThirdPersonFOV;
+	}
+
+	// 应用选中英雄/皮肤的第三人称模型：服务器解析并复制，客户端靠 OnRep_HeroVisual 套用
+	if (HasAuthority())
+	{
+		ApplyHeroVisual();
+	}
+	else
+	{
+		ApplyHeroVisualNow();
+	}
+
 	// 如果 GrenadeComponent 裸指针为空（BP 编译/CDO 原因），从组件列表补上
 	if (!GrenadeComponent)
 	{
@@ -135,6 +169,61 @@ void As1mpleFpsCharacter::BeginPlay()
 void As1mpleFpsCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	
+	if (bIsClimbing)
+	{
+		if (HealthComponent && HealthComponent->bIsDead)
+		{
+			StopClimbing(false);
+		}
+		else
+		{
+			ClimbElapsedTime += DeltaTime;
+			float TotalDistance = FVector::Dist(StartClimbLocation, TargetClimbLocation);
+			float MoveDuration = TotalDistance / ClimbSpeed;
+			float Alpha = FMath::Clamp(ClimbElapsedTime / MoveDuration, 0.0f, 1.0f);
+
+			// 两段式：先竖直升到墙沿上方（贴着墙面、不穿墙），再水平移上墙顶落点
+			FVector NewLocation;
+			if (Alpha < 0.5f)
+			{
+				float t = Alpha / 0.5f;
+				NewLocation = FMath::Lerp(StartClimbLocation, ClimbOverLocation, t);
+			}
+			else
+			{
+				float t = (Alpha - 0.5f) / 0.5f;
+				NewLocation = FMath::Lerp(ClimbOverLocation, TargetClimbLocation, t);
+			}
+			SetActorLocation(NewLocation, false);
+
+			if (Alpha >= 1.0f)
+			{
+				StopClimbing(true);
+			}
+		}
+		return; // 攀爬时跳过其余逻辑
+	}
+	// 英雄模型要等 PlayerState 就位才解析。
+	// 服务端按「已套用索引 != 当前索引」判断是否要重新套用（无缝跳图时索引可能晚于角色 BeginPlay 才恢复）。
+	if (HasAuthority())
+	{
+		As1mpleFpsPlayerState* PS = GetPlayerState<As1mpleFpsPlayerState>();
+		if (PS && AppliedHeroIndex != PS->SelectedHeroIndex)
+		{
+			ApplyHeroVisual();
+		}
+	}
+}
+
+void As1mpleFpsCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 清掉「死亡后隐藏 mesh」的定时器，防止角色被销毁/切图后定时器回调访问已释放的 this（Timer UAF 崩溃）
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(DeathHideTimerHandle);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 //////////////////////////////////////////////////////////////////////////// Input
@@ -145,8 +234,8 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
 		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &As1mpleFpsCharacter::OnJumpPressed);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &As1mpleFpsCharacter::StopJumping);
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &As1mpleFpsCharacter::Move);
@@ -176,6 +265,10 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		{
 			EnhancedInputComponent->BindAction(TauntAction, ETriggerEvent::Started, this,
 				&As1mpleFpsCharacter::OnTaunt);
+		}
+		if (DoorAction) {
+			EnhancedInputComponent->BindAction(DoorAction, ETriggerEvent::Started, this,
+				&As1mpleFpsCharacter::HandleDoor);
 		}
 
 
@@ -227,36 +320,42 @@ void As1mpleFpsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 
 void As1mpleFpsCharacter::NextWeapon()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->NextWeapon();
 }
 
 void As1mpleFpsCharacter::PreviousWeapon()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->PreviousWeapon();
 }
 
 void As1mpleFpsCharacter::OnWeaponSlot1()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->SelectWeaponSlot(0);
 }
 
 void As1mpleFpsCharacter::OnWeaponSlot2()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->SelectWeaponSlot(1);
 }
 
 void As1mpleFpsCharacter::OnWeaponSlot3()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->SelectWeaponSlot(2);
 }
 
 void As1mpleFpsCharacter::OnUseHealth()
 {
+	if (bIsClimbing)return;
 	if (HealthComponent)
 	{
 		HealthComponent->OnUseHealth();
@@ -265,6 +364,7 @@ void As1mpleFpsCharacter::OnUseHealth()
 
 void As1mpleFpsCharacter::Move(const FInputActionValue& Value)
 {
+	if (bIsClimbing)return;
 	if (HealthComponent && HealthComponent->bIsDead) return;
 	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
 	if (GS && GS->bIsWarmUp) return;
@@ -333,12 +433,14 @@ void As1mpleFpsCharacter::PauseGame()
 
 void As1mpleFpsCharacter::Interact()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->Interact();
 }
 
 void As1mpleFpsCharacter::Reload()
 {
+	if (bIsClimbing)return;
 	if (WeaponInventoryComponent)
 		WeaponInventoryComponent->Reload();
 }
@@ -369,7 +471,12 @@ void As1mpleFpsCharacter::ToggleView()
 		ActiveWeapon->EndAiming();
 	}
 
-	bIsThirdPerson = !bIsThirdPerson;
+	SetViewMode(!bIsThirdPerson);
+}
+
+void As1mpleFpsCharacter::SetViewMode(bool bToThirdPerson)
+{
+	bIsThirdPerson = bToThirdPerson;
 	if (bIsThirdPerson)
 	{
 		ThirdPersonCamera->SetActive(true);
@@ -387,6 +494,14 @@ void As1mpleFpsCharacter::ToggleView()
 		GetMesh()->SetOwnerNoSee(true);
 		ThirdPersonSpringArm->bUsePawnControlRotation = false;
 		ReattachWeaponsForView(false);
+	}
+}
+
+void As1mpleFpsCharacter::ForceToFirstPerson()
+{
+	if (bIsThirdPerson)
+	{
+		SetViewMode(false);
 	}
 }
 
@@ -435,6 +550,62 @@ void As1mpleFpsCharacter::GrantHealthItem(UHealthData* HealthDataPtr)
 	}
 }
 
+void As1mpleFpsCharacter::ApplyHeroVisual()
+{
+	// 只服务器解析；客户端靠 OnRep_HeroVisual 套用复制过来的模型
+	if (!HasAuthority()) return;
+
+	As1mpleFpsPlayerState* PS = GetPlayerState<As1mpleFpsPlayerState>();
+	if (!PS) return;
+
+	As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(GetController());
+	if (!PC || PC->HeroRoster.Num() == 0) return;
+
+	UHeroData* Hero = PC->GetHeroByIndex(PS->SelectedHeroIndex);
+	if (!Hero || !Hero->Mesh) return;
+
+	// 写入复制字段 → 客户端 OnRep_HeroVisual 自动套用；本地也立即套用
+	SelectedHeroMesh = Hero->Mesh;
+	SelectedHeroAnimClass = Hero->AnimInstanceClass;
+	ApplyHeroVisualNow();
+	AppliedHeroIndex = PS->SelectedHeroIndex; // 记录已套用的索引，索引变化时 Tick 会重新套用
+	UE_LOG(LogTemplateCharacter, Log, TEXT("[Hero] 服务端套用: idx=%d mesh=%s (%s)"),
+		PS->SelectedHeroIndex, *Hero->Mesh->GetName(), *GetName());
+}
+
+void As1mpleFpsCharacter::ApplyHeroVisualNow()
+{
+	if (!SelectedHeroMesh) return;
+	GetMesh()->SetSkeletalMesh(SelectedHeroMesh);
+	if (SelectedHeroAnimClass)
+	{
+		GetMesh()->SetAnimInstanceClass(SelectedHeroAnimClass);
+	}
+}
+
+void As1mpleFpsCharacter::OnRep_HeroVisual()
+{
+	UE_LOG(LogTemplateCharacter, Log, TEXT("[Hero] OnRep_HeroVisual: mesh=%s net=%d (%s)"),
+		SelectedHeroMesh ? *SelectedHeroMesh->GetName() : TEXT("NULL"), (int32)GetNetMode(), *GetName());
+	ApplyHeroVisualNow();
+}
+
+void As1mpleFpsCharacter::HandleDoor()
+{
+	As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(GetController());
+	if (!PC)return;
+
+	TArray<AActor*> OverlapActors;
+	GetOverlappingActors(OverlapActors, ADoor::StaticClass());
+	for (AActor *Actor:OverlapActors) {
+		ADoor* Door = Cast<ADoor>(Actor);
+		if (Door) {
+			Door->Door_Interact(PC);
+			break;
+		}
+	}
+}
+
 void As1mpleFpsCharacter::ClientApplyFlash_Implementation(float Intensity, float Duration)
 {
 	APlayerController* PC = Cast<APlayerController>(GetController());
@@ -456,6 +627,14 @@ void As1mpleFpsCharacter::ClientDamageFeedback_Implementation(float Intensity, f
 	{
 		FlashWidget->AddToViewport();
 		FlashWidget->StartFlashing(Intensity, Duration, FLinearColor(0.8f, 0.0f, 0.0f));  // 红色血反馈
+	}
+}
+
+void As1mpleFpsCharacter::ClientPlayKillSound_Implementation(USoundBase* Sound)
+{
+	if (Sound)
+	{
+		UGameplayStatics::PlaySound2D(this, Sound);
 	}
 }
 
@@ -530,6 +709,7 @@ void As1mpleFpsCharacter::MulticastPlayDeathMontage_Implementation(UAnimMontage*
 
 void As1mpleFpsCharacter::OnTaunt()
 {
+	if (bIsClimbing)return;
 	if (IsDead()) return;
 	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 	if (Now - LastTauntTime < 2.0f) return; // 防连点
@@ -554,4 +734,192 @@ void As1mpleFpsCharacter::ServerTaunt_Implementation()
 	const int32 Idx = (LastTauntIndex + 1) % ThirdPersonTauntMontages.Num();
 	LastTauntIndex = Idx;
 	MulticastPlayThirdPersonMontage(ThirdPersonTauntMontages[Idx]);
+}
+
+void As1mpleFpsCharacter::OnJumpPressed()
+{
+	if (HealthComponent && HealthComponent->bIsDead)return;
+	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
+	if (GS && GS->bIsWarmUp)return;
+	if (bIsClimbing) {
+		if (GetNetMode() != NM_Client) {
+			CancelClimbing();
+			return;
+		}
+		else {
+			ServerCancelClimbing();
+			return;
+		}
+	}
+	FVector Target;
+	FVector OverTarget;
+	if (CanClimbing(Target, OverTarget)) {
+		if (GetNetMode() != NM_Client) {
+			StartClimbing(Target, OverTarget);
+		}
+		else {
+			ServerStartClimbing(Target);
+		}
+		return; // 触发攀爬后不再执行 Jump
+	}
+	if (GetCharacterMovement()->IsMovingOnGround()) {
+		Jump();
+	}
+}
+
+bool As1mpleFpsCharacter::CanClimbing(FVector& OutTarget, FVector& OutOverTarget)const
+{	
+	if (!GetWorld())return false;
+
+	FVector Start = GetActorLocation();
+	Start.Z+=50.f;
+	FVector Forward = GetControlRotation().Vector();
+	Forward.Z = 0.0f;
+	Forward.Normalize();
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+	Params.bTraceComplex = true;
+
+	struct FClimbCandidate
+	{
+		FHitResult WallHit;
+		float AngleDeg;
+	};
+	TArray<FClimbCandidate> Candidates;
+	for (float Degree = -SampleAngleRange * 0.5;Degree <= SampleAngleRange * 0.5;Degree += SampleAngleStep) {
+		FRotator Rot = FRotator(0.f, Degree, 0.f);
+		FVector Dir = Rot.RotateVector(Forward);
+		FVector End = Start + Dir * ClimbCheckDistance;
+
+		FHitResult Hit;
+		if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, Params)) {
+			FVector WallNormal = Hit.ImpactNormal;
+			WallNormal.Z = 0.f;
+			WallNormal.Normalize();
+
+			float DotProduct = FVector::DotProduct(Forward, WallNormal);
+			float RealDotProduct = FMath::Acos(FMath::Clamp(-DotProduct,-1.0f,1.0f));
+			float Angle = FMath::RadiansToDegrees(RealDotProduct);
+
+			if (Angle <= MaxAngleToWall) {
+				FClimbCandidate Candidate;
+				Candidate.WallHit = Hit;
+				Candidate.AngleDeg = Angle;
+				Candidates.Add(Candidate);
+			}
+		}
+	}
+	if (Candidates.Num() <= 0)return false;
+
+	Candidates.Sort([](const FClimbCandidate& A, const FClimbCandidate& B) {
+		return A.AngleDeg < B.AngleDeg;
+		});
+	FHitResult BestHit = Candidates[0].WallHit;
+	FVector AboveWall = BestHit.ImpactPoint + FVector(0, 0, ClimbCheckHeight);
+	FVector BelowWall = BestHit.ImpactPoint - FVector(0, 0, ClimbCheckHeight);
+	FHitResult TopHit;
+	if (!GetWorld()->LineTraceSingleByChannel(TopHit, AboveWall, BelowWall, ECC_WorldStatic,Params))
+		return false;
+
+	// 命中的必须是「朝上的顶面」。若法线接近水平，说明打到了墙面/斜面（比如太高翻不过去的实心墙），直接拒绝
+	if (TopHit.ImpactNormal.Z < MinTopFaceNormalZ)
+		return false;
+
+	// 计算落点：胶囊中心落到墙顶上方，并向墙内偏移「胶囊半径 + 余量」，让整根胶囊都压在墙顶平面上
+	float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	float Radius = GetCapsuleComponent()->GetScaledCapsuleRadius();
+	FVector IntoWall = -BestHit.ImpactNormal;   // ImpactNormal 指向玩家，取反才指向墙内
+	IntoWall.Z = 0.0f;
+	IntoWall.Normalize();
+	if (IntoWall.IsNearlyZero()) IntoWall = Forward;
+
+	FVector Target = TopHit.ImpactPoint;        // 墙顶前缘
+	Target.Z += HalfHeight;
+	Target += IntoWall * (Radius + 10.0f);
+
+	// 越过墙沿的中间点：胶囊保持在墙正面之外，底部抬到比墙顶略高，第二阶段水平移动时才不会扫到墙
+	FVector OverTarget = TopHit.ImpactPoint;
+	OverTarget.Z += HalfHeight + 10.0f;
+	OverTarget += (-IntoWall) * (Radius + 5.0f);
+
+	//Height Check
+	float HeightDiff = Target.Z - Start.Z;
+	if (HeightDiff < MinClimbHeight || HeightDiff > MaxClimbHeight)
+		return false;
+
+	OutTarget = Target;
+	OutOverTarget = OverTarget;
+	return true;
+}
+
+void As1mpleFpsCharacter::StartClimbing(const FVector& Target, const FVector& OverTarget)
+{
+	if (bIsClimbing) return;
+	if (GetWorld()->GetNetMode() == NM_Client) return;
+
+	bIsClimbing = true;
+	TargetClimbLocation = Target;
+	ClimbOverLocation = OverTarget;
+	StartClimbLocation = GetActorLocation();
+	ClimbElapsedTime = 0.0f;
+
+	GetCharacterMovement()->SetMovementMode(MOVE_None);
+
+	// 第一人称手臂 montage 播在 Mesh1P（仅持有者可见），第三人称全身 montage 广播
+	if (FPPClimbMontage && Mesh1P && IsLocallyControlled())
+	{
+		if (UAnimInstance* FPPAnim = Mesh1P->GetAnimInstance())
+		{
+			FPPAnim->Montage_Play(FPPClimbMontage, 1.0f, EMontagePlayReturnType::MontageLength, 0.0f, false);
+		}
+	}
+	if (TPPClimbMontage)
+	{
+		MulticastPlayThirdPersonMontage(TPPClimbMontage);
+	}
+}
+
+void As1mpleFpsCharacter::StopClimbing(bool bCompleted)
+{
+	if (!bIsClimbing)return;
+	bIsClimbing = false;
+	if (bCompleted) {
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	}
+	else {
+		GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+	}
+}
+
+void As1mpleFpsCharacter::CancelClimbing()
+{
+	if (GetWorld()->GetNetMode() == NM_Client)
+	{
+		ServerCancelClimbing();
+	}
+	else
+	{
+		StopClimbing(false);
+	}
+}
+
+void As1mpleFpsCharacter::ServerStartClimbing_Implementation(FVector TargetLocation)
+{
+	if(bIsClimbing) return;
+	if (HealthComponent && HealthComponent->bIsDead) return;
+	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
+	if (GS && GS->bIsWarmUp) return;
+
+	FVector ValidTarget;
+	FVector ValidOverTarget;
+	if (CanClimbing(ValidTarget, ValidOverTarget))   // 服务器重新检测，不信任客户端
+	{
+		StartClimbing(ValidTarget, ValidOverTarget);
+	}
+}
+
+void As1mpleFpsCharacter::ServerCancelClimbing_Implementation()
+{
+	StopClimbing(false);
 }

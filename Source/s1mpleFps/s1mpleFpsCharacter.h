@@ -8,6 +8,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Perception/AIPerceptionStimuliSourceComponent.h"
 #include "TimerManager.h"
+#include "Engine/SkeletalMesh.h"
 #include "s1mpleFpsCharacter.generated.h"
 
 
@@ -50,6 +51,19 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* ThirdPersonCamera;
 
+	// 第三人称相机参数（在 BP Class Defaults 里调，BeginPlay 应用到弹簧臂/相机）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Camera", meta = (AllowPrivateAccess = "true"))
+	float ThirdPersonArmLength = 300.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Camera", meta = (AllowPrivateAccess = "true"))
+	FVector ThirdPersonSocketOffset = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Camera", meta = (AllowPrivateAccess = "true"))
+	FVector ThirdPersonTargetOffset = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson|Camera", meta = (AllowPrivateAccess = "true"))
+	float ThirdPersonFOV = 90.0f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))
 	UDamageComponent* DamageComponent;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))
@@ -81,6 +95,10 @@ public:
 	UInputAction* ToggleViewAction;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
 	UInputAction* GrenadeThrowAction;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* DoorAction;
+
+
 	void OnThrowGrenade(const FInputActionValue& Value);
 
 public:
@@ -100,6 +118,8 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 public:
 
@@ -190,6 +210,10 @@ public:
 	float LastFootstepTime = 0.0f;
 	UFUNCTION(BlueprintCallable)
 	void ToggleView();
+	// 直接设视角（内部用，不经过 ToggleView 的冷却/EndAiming）
+	void SetViewMode(bool bToThirdPerson);
+	// 强制回第一人称（开镜/捏雷时用）
+	void ForceToFirstPerson();
 	// 第三人称武器挂点（默认用右手）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ThirdPerson")
 	FName ThirdPersonWeaponSocket = TEXT("hand_r");
@@ -250,8 +274,19 @@ public:
 	float LastTauntTime = 0.0f;
 
 	void GrantArmor(UArmorData* ArmorData);
-	
+
 	void GrantHealthItem(UHealthData* HealthData);
+
+	// ==== 英雄模型（由 Character 自身的复制字段驱动，主机/客户端对称） ====
+	// 服务器解析出的模型，复制给所有端；客户端直接套用，不读远程控制器的 HeroRoster
+	UPROPERTY(ReplicatedUsing = OnRep_HeroVisual)
+	USkeletalMesh* SelectedHeroMesh = nullptr;
+
+	UPROPERTY(ReplicatedUsing = OnRep_HeroVisual)
+	UClass* SelectedHeroAnimClass = nullptr;
+
+	// 服务器端：从 PlayerState.SelectedHeroIndex + 控制器 HeroRoster 解析模型，写入上面两个复制字段并本地套用
+	void ApplyHeroVisual();
 
 	// 闪光弹效果
 	UFUNCTION(Client, Reliable)
@@ -261,4 +296,66 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientDamageFeedback(float Intensity, float Duration);
 
+	// 击杀/连杀音效：服务器 → 击杀者本人
+	UFUNCTION(Client, Reliable)
+	void ClientPlayKillSound(USoundBase* Sound);
+
+private:
+	// 所有端：把 SelectedHeroMesh / SelectedHeroAnimClass 套到第三人称 GetMesh()
+	void ApplyHeroVisualNow();
+
+	// 复制回调：客户端收到模型后套用
+	UFUNCTION()
+	void OnRep_HeroVisual();
+
+	// 服务器端已套用的英雄索引（-1 未套用）。无缝跳图时索引可能在角色 BeginPlay 之后才恢复，
+	// Tick 里发现 AppliedHeroIndex != SelectedHeroIndex 就重新套用。
+	int32 AppliedHeroIndex = -1;
+
+	void HandleDoor();
+
+public:
+	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Climbing")
+	float ClimbCheckDistance = 150.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	float ClimbCheckHeight = 200.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	float MinClimbHeight = 50.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	float MaxClimbHeight = 250.f;
+	// 顶面法线 Z 分量阈值（0~1）：越高要求顶面越平（越难翻），越低越容易翻上斜面
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	float MinTopFaceNormalZ = 0.7f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	UAnimMontage* FPPClimbMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	UAnimMontage* TPPClimbMontage;
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Climbing")
+	bool bIsClimbing = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	float ClimbSpeed = 400.f;
+
+	UPROPERTY(EditAnywhere, Category = "Climbing")
+	float MaxAngleToWall = 45.0f;           // 允许的最大夹角（度）
+
+	// 扇形采样参数
+	UPROPERTY(EditAnywhere, Category = "Climbing")
+	float SampleAngleRange = 60.0f;         // 左右采样总范围（度）
+	UPROPERTY(EditAnywhere, Category = "Climbing")
+	float SampleAngleStep = 15.0f;
+
+	void OnJumpPressed();
+protected:
+	FVector StartClimbLocation = FVector::ZeroVector;
+	FVector TargetClimbLocation = FVector::ZeroVector;
+	FVector ClimbOverLocation = FVector::ZeroVector;
+	float ClimbElapsedTime = 0.0f;
+	bool CanClimbing(FVector& OutTarget, FVector& OutOverTarget)const;
+	void StartClimbing(const FVector& Target, const FVector& OverTarget);
+	void StopClimbing(bool bCompleted);
+	void CancelClimbing();
+	UFUNCTION(Server,Reliable)
+	void ServerStartClimbing(FVector TargetLocation);
+	UFUNCTION(Server,Reliable)
+	void ServerCancelClimbing();
 };

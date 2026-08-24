@@ -17,10 +17,26 @@
 #include "TP_WeaponComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "s1mpleFpsGameState.h"
+#include "s1mpleFpsGameInstance.h"
+#include "LobbyGameMode.h"
+
 
 void As1mpleFpsPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 用主菜单设置的玩家名覆盖登录名（本地玩家才发 RPC）
+	if (IsLocalController())
+	{
+		if (Us1mpleFpsGameInstance* GI = GetGameInstance<Us1mpleFpsGameInstance>())
+		{
+			const FString& DesiredName = GI->GetDesiredPlayerName();
+			if (!DesiredName.IsEmpty())
+			{
+				ServerSetPlayerName(DesiredName);
+			}
+		}
+	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
@@ -43,6 +59,7 @@ void As1mpleFpsPlayerController::BeginPlay()
 
 	FString MapName = GetWorld()->GetMapName();
 	const bool bIsMenuMap = MapName.Contains(TEXT("Start")) || MapName.Contains(TEXT("MainMenu"));
+	const bool bIsLobbyMap = MapName.Contains(TEXT("Lobby"));
 
 	if (bIsMenuMap)
 	{
@@ -55,6 +72,19 @@ void As1mpleFpsPlayerController::BeginPlay()
 			{
 				Menu->AddToViewport();
 			}
+		}
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+		bShowMouseCursor = true;
+	}
+	else if (bIsLobbyMap && LobbyWidgetClass)
+	{
+		// 大厅地图：创建大厅 UI（选队/就绪/开始）
+		LobbyWidget = CreateWidget<UUserWidget>(this, LobbyWidgetClass);
+		if (LobbyWidget)
+		{
+			LobbyWidget->AddToViewport();
 		}
 		FInputModeGameAndUI InputMode;
 		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
@@ -352,6 +382,15 @@ void As1mpleFpsPlayerController::OnUnPossess()
 	Super::OnUnPossess();
 }
 
+void As1mpleFpsPlayerController::ServerHostStartGame_Implementation()
+{
+	ALobbyGameMode* GM = GetWorld()->GetAuthGameMode<ALobbyGameMode>();
+	if (GM && GM->IsHost(this))
+	{
+		GM->TryStartGame();
+	}
+}
+
 void As1mpleFpsPlayerController::OnPawnHealthChanged(float Health, float MaxHealth)
 {
 	
@@ -404,4 +443,78 @@ void As1mpleFpsPlayerController::TogglePause()
 
 	}
 
+}
+
+void As1mpleFpsPlayerController::ServerJoinTeam_Implementation(ETeam NewTeam)
+{
+	if (NewTeam == ETeam::None)return;
+	As1mpleFpsPlayerState* PS = GetPlayerState<As1mpleFpsPlayerState>();
+	if (PS) {
+		PS->Team = NewTeam;
+		PS->ForceNetUpdate();
+		// 跨地图携带队伍（大厅→PvP）
+		if (Us1mpleFpsGameInstance* GI = GetGameInstance<Us1mpleFpsGameInstance>()) {
+			GI->SetPlayerTeam(PS->GetUniqueId(), NewTeam);
+		}
+		ALobbyGameMode* GM = GetWorld()->GetAuthGameMode<ALobbyGameMode>();
+		if(GM)
+		GM->CheckStartCondition();
+	}
+}
+
+void As1mpleFpsPlayerController::ServerSetReady_Implementation()
+{
+	As1mpleFpsPlayerState* PS = GetPlayerState<As1mpleFpsPlayerState>();
+	if (!PS)return;
+	PS->bReady = !PS->bReady;
+	PS->ForceNetUpdate();
+	ALobbyGameMode* GM = GetWorld()->GetAuthGameMode<ALobbyGameMode>();
+	if (GM)
+		GM->CheckStartCondition();
+}
+
+void As1mpleFpsPlayerController::ServerSetPlayerName_Implementation(const FString& NewName)
+{
+	if (NewName.IsEmpty()) return;
+	As1mpleFpsPlayerState* PS = GetPlayerState<As1mpleFpsPlayerState>();
+	if (PS)
+	{
+		PS->SetPlayerName(NewName);
+	}
+}
+
+void As1mpleFpsPlayerController::ServerSelectHero_Implementation(int32 HeroIndex)
+{
+	if (HeroIndex < 0 || HeroIndex >= HeroRoster.Num()) return; // 越界保护
+	As1mpleFpsPlayerState* PS = GetPlayerState<As1mpleFpsPlayerState>();
+	if (!PS) return;
+
+	PS->SelectedHeroIndex = HeroIndex;
+	PS->ForceNetUpdate();
+	// 跨地图携带（大厅 → PvP），和队伍携带同理
+	if (Us1mpleFpsGameInstance* GI = GetGameInstance<Us1mpleFpsGameInstance>())
+	{
+		GI->SetPlayerHero(PS->GetUniqueId(), HeroIndex);
+	}
+	// 服务器端立即解析并换模型（写入 Character 的复制字段 → 客户端 OnRep_HeroVisual 自动同步）
+	if (As1mpleFpsCharacter* C = Cast<As1mpleFpsCharacter>(GetPawn()))
+	{
+		C->ApplyHeroVisual();
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Hero] ServerSelectHero: hero=%d, Player=%s"), HeroIndex, *PS->GetPlayerName());
+}
+
+void As1mpleFpsPlayerController::ClientUpdatePrompt_Implementation(bool bShow, const FString& Text)
+{
+	if (!IsLocalController())return;
+
+	if (HUDWidget)
+	{
+		HUDWidget->SetInteractionPrompt(bShow, Text);
+	}
+}
+
+UHeroData* As1mpleFpsPlayerController::GetHeroByIndex(int32 Index) const
+{
+	return HeroRoster.IsValidIndex(Index) ? HeroRoster[Index] : nullptr;
 }

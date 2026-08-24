@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "BuyEquipmentData.h"
+#include "s1mpleFpsPlayerState.h"
+#include "HeroData.h"
 #include "s1mpleFpsPlayerController.generated.h"
 
 class UChatWidget;
@@ -17,6 +19,7 @@ class UUserWidget;
 class UHUDWidget;
 class UBuyEquipmentData;
 class As1mpleFpsCharacter;
+
 
 UCLASS()
 class S1MPLEFPS_API As1mpleFpsPlayerController : public APlayerController
@@ -103,8 +106,33 @@ public:
 		TSubclassOf<UUserWidget> BuyMenuWidgetClass;
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 		TObjectPtr<UUserWidget> BuyMenuWidget;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+		TSubclassOf<UUserWidget> LobbyWidgetClass;
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+		TObjectPtr<UUserWidget> LobbyWidget;
 	UFUNCTION(BlueprintCallable)
 		void TogglePause();
+
+	//lobby RPC
+	UFUNCTION(Server, Reliable, BlueprintCallable)
+	void ServerJoinTeam(ETeam NewTeam);
+	UFUNCTION(Server, Reliable, BlueprintCallable)
+	void ServerSetReady();
+	UFUNCTION(Server, Reliable, BlueprintCallable)
+	void ServerHostStartGame();
+	UFUNCTION(Server, Reliable, BlueprintCallable)
+	void ServerSetPlayerName(const FString& NewName);
+	UFUNCTION(Server, Reliable, BlueprintCallable)
+	void ServerSelectHero(int32 HeroIndex);
+	UFUNCTION(Client,Reliable)
+	void ClientUpdatePrompt(bool bShow, const FString& Text);
+
+	// 英雄/皮肤列表（选人 UI + 角色换模型共用的唯一配置源，在 BP_FirstPersonPlayerController 里配）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heroes")
+	TArray<UHeroData*> HeroRoster;
+
+	UFUNCTION(BlueprintCallable, Category = "Heroes")
+	UHeroData* GetHeroByIndex(int32 Index) const;
 
 private:
 	UFUNCTION()
