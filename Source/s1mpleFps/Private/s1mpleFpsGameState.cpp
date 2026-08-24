@@ -6,9 +6,9 @@
 #include "s1mpleFpsPvPGameMode.h"
 #include "Net/UnrealNetwork.h"
 
-void As1mpleFpsGameState::MulticastKillPlay_Implementation(const FString& KillerName, const FString& VictimName)
+void As1mpleFpsGameState::MulticastKillPlay_Implementation(const FString& KillerName, const FString& VictimName, ETeam KillerTeam)
 {
-	OnKillPlay.Broadcast(KillerName, VictimName);
+	OnKillPlay.Broadcast(KillerName, VictimName, KillerTeam);
 }
 
 void As1mpleFpsGameState::MulticastReceivedChatMessage_Implementation(const FString& Sender, const FString& Message, bool bIsTeam)
@@ -23,6 +23,7 @@ void As1mpleFpsGameState::StartCountdown()
 		bIsWarmUp = true;
 		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>()) {
 			WarmUpTime = GM->WarmUpDuration;
+			KillFeedColorMode = GM->KillFeedColorMode;
 		}
 		OnWarmUpTimeChanged.Broadcast(WarmUpTime);
 		GetWorld()->GetTimerManager().SetTimer(WarmUpHandle, this, &As1mpleFpsGameState::TickWarmUp, 1.0f, true);
@@ -62,24 +63,14 @@ void As1mpleFpsGameState::OvertimeCountDown()
 
 void As1mpleFpsGameState::OnMatchTimeUp()
 {
-	if (bMatchEnded)return;
-	int highestKill = -1;
-	TArray<FString> TopPlayers;
-	for (APlayerState* PS : PlayerArray) {
-		As1mpleFpsPlayerState* PvPPS = Cast<As1mpleFpsPlayerState>(PS);
-		if (PvPPS && PvPPS->Kills > highestKill) {
-			highestKill = PvPPS->Kills;
-			TopPlayers.Empty();
-			TopPlayers.Add( PvPPS->GetPlayerName());
-		}
-		else if (PvPPS && PvPPS->Kills == highestKill) {
-			TopPlayers.Add(PvPPS->GetPlayerName());
-		}
-	}
-	if (TopPlayers.Num() == 1) {
-		AnnounceWinner(TopPlayers[0], false);
+	if (bMatchEnded) return;
+	// 时间到：团队击杀多者获胜
+	ETeam Leading = GetLeadingTeam();
+	if (Leading != ETeam::None) {
+		AnnounceWinner(GetTeamName(Leading), false);
 		return;
 	}
+	// 平局 → 加时
 	bSuddenDeath = true;
 	OnSuddenDeath.Broadcast();
 	StartOvertime();
@@ -119,6 +110,10 @@ void As1mpleFpsGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(As1mpleFpsGameState, OvertimeRemaining);
 	DOREPLIFETIME(As1mpleFpsGameState, WarmUpTime);
 	DOREPLIFETIME(As1mpleFpsGameState, bIsWarmUp);
+	DOREPLIFETIME(As1mpleFpsGameState, BlueTeamKills);
+	DOREPLIFETIME(As1mpleFpsGameState, RedTeamKills);
+	DOREPLIFETIME(As1mpleFpsGameState, OvertimeCount);
+	DOREPLIFETIME(As1mpleFpsGameState, KillFeedColorMode);
 }
 
 void As1mpleFpsGameState::OnRep_MatchTimeRemaining()
@@ -146,6 +141,77 @@ void As1mpleFpsGameState::OnRep_WarmUpRemaining()
 	OnWarmUpTimeChanged.Broadcast(WarmUpTime);
 }
 
+void As1mpleFpsGameState::OnRep_TeamScore()
+{
+	OnTeamScoreChanged.Broadcast(BlueTeamKills, RedTeamKills);
+}
+
+// === 团队辅助 ===
+void As1mpleFpsGameState::AddTeamKill(ETeam Team)
+{
+	if (Team == ETeam::Blue) {
+		BlueTeamKills++;
+	}
+	else if (Team == ETeam::Red) {
+		RedTeamKills++;
+	}
+	OnTeamScoreChanged.Broadcast(BlueTeamKills, RedTeamKills);
+}
+
+int32 As1mpleFpsGameState::GetTeamKills(ETeam Team) const
+{
+	if (Team == ETeam::Blue) return BlueTeamKills;
+	if (Team == ETeam::Red) return RedTeamKills;
+	return 0;
+}
+
+int32 As1mpleFpsGameState::GetOvertimeStartTeamKills(ETeam Team) const
+{
+	if (Team == ETeam::Blue) return OvertimeStartBlueKills;
+	if (Team == ETeam::Red) return OvertimeStartRedKills;
+	return 0;
+}
+
+ETeam As1mpleFpsGameState::GetLeadingTeam() const
+{
+	if (BlueTeamKills == RedTeamKills) return ETeam::None;
+	return BlueTeamKills > RedTeamKills ? ETeam::Blue : ETeam::Red;
+}
+
+FString As1mpleFpsGameState::GetTeamName(ETeam Team) const
+{
+	switch (Team) {
+	case ETeam::Blue: return TEXT("Blue");
+	case ETeam::Red:  return TEXT("Red");
+	default:          return TEXT("None");
+	}
+}
+
+As1mpleFpsPlayerState* As1mpleFpsGameState::FindStrongestPlayer() const
+{
+	As1mpleFpsPlayerState* Best = nullptr;
+	int32 BestKills = -1;
+	int32 BestDeaths = 999;
+	int32 BestScore = -1;
+	for (APlayerState* PS : PlayerArray) {
+		As1mpleFpsPlayerState* Player = Cast<As1mpleFpsPlayerState>(PS);
+		if (!Player) continue;
+
+		bool bBetter = false;
+		if (Player->Kills > BestKills) { bBetter = true; }
+		else if (Player->Kills == BestKills && Player->Deaths < BestDeaths) { bBetter = true; }
+		else if (Player->Kills == BestKills && Player->Deaths == BestDeaths && Player->Scores > BestScore) { bBetter = true; }
+
+		if (bBetter) {
+			Best = Player;
+			BestKills = Player->Kills;
+			BestDeaths = Player->Deaths;
+			BestScore = Player->Scores;
+		}
+	}
+	return Best;
+}
+
 
 void As1mpleFpsGameState::AnnounceWinner(const FString& Winner, bool bWin)
 {
@@ -162,16 +228,18 @@ void As1mpleFpsGameState::AnnounceWinner(const FString& Winner, bool bWin)
 
 void As1mpleFpsGameState::StartOvertime()
 {
-	if (!HasAuthority())return;
-	OvertimeStartKills.Empty();
-	for (APlayerState* PS : PlayerArray) {
-		As1mpleFpsPlayerState* Player = Cast<As1mpleFpsPlayerState>(PS);
-		if (Player) {
-			OvertimeStartKills.Add(Player, Player->Kills);
-				}
-	}
+	if (!HasAuthority()) return;
+	OvertimeCount++;
+	OvertimeStartBlueKills = BlueTeamKills;
+	OvertimeStartRedKills = RedTeamKills;
+
 	As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>();
 	float MaxTime = GM ? GM->OvertimeMaxDuration : 120.f;
+
+	// 可重复加时：先清掉上一轮残留计时器再开新轮
+	GetWorld()->GetTimerManager().ClearTimer(OvertimeHandle);
+	GetWorld()->GetTimerManager().ClearTimer(OvertimeRemainingHandle);
+
 	GetWorld()->GetTimerManager().SetTimer(OvertimeHandle, this, &As1mpleFpsGameState::OnOvertimeUp, MaxTime, false);
 	OvertimeRemaining = MaxTime;
 	OnOvertimeChanged.Broadcast(OvertimeRemaining);
@@ -180,26 +248,24 @@ void As1mpleFpsGameState::StartOvertime()
 
 void As1mpleFpsGameState::OnOvertimeUp()
 {
-	if (bMatchEnded)return;
-	int32 BestKills = -1;
-	int32 BestDeaths = 999;
-	int32 BestScore = -1;
-	FString Winner;
-	for (APlayerState* PS : PlayerArray) {
-		As1mpleFpsPlayerState* Player = Cast<As1mpleFpsPlayerState>(PS);
-		if (!Player)continue;
-
-		bool bBetter = false;
-		if (Player->Kills > BestKills) { bBetter = true; }
-		else if (Player->Kills == BestKills && Player->Deaths < BestDeaths) { bBetter = true; }
-		else if (Player->Kills == BestKills && Player->Deaths == BestDeaths && Player->Scores > BestScore) { bBetter = true; }
-
-		if (bBetter) {
-			BestKills = Player->Kills;
-			BestDeaths = Player->Deaths;
-			BestScore = Player->Scores;
-			Winner = Player->GetPlayerName();
-		}
+	if (bMatchEnded) return;
+	ETeam Leading = GetLeadingTeam();
+	if (Leading != ETeam::None) {
+		AnnounceWinner(GetTeamName(Leading), false);
+		return;
 	}
-	AnnounceWinner(Winner, false);
+
+	// 平局：未达加时上限则再开一轮
+	As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>();
+	int32 MaxRounds = GM ? GM->MaxOvertimeRounds : 1;
+	if (OvertimeCount < MaxRounds) {
+		StartOvertime();
+		return;
+	}
+
+	// 加时次数达到上限：比最强个人（沿用现有 Kills→Deaths→Scores 优先级）
+	As1mpleFpsPlayerState* Strongest = FindStrongestPlayer();
+	if (Strongest) {
+		AnnounceWinner(GetTeamName(Strongest->Team), false);
+	}
 }

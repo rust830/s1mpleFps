@@ -3,6 +3,7 @@
 
 #include "s1mpleFpsPlayerState.h"
 #include "s1mpleFpsPvPGameMode.h"
+#include "s1mpleFpsCharacter.h"
 #include "Net/UnrealNetwork.h"
 
 void As1mpleFpsPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -16,6 +17,9 @@ void As1mpleFpsPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME_CONDITION(As1mpleFpsPlayerState, DeathStreak, COND_OwnerOnly);
 	//DOREPLIFETIME(As1mpleFpsPlayerState, TeamId);
 	DOREPLIFETIME(As1mpleFpsPlayerState, Team);
+	DOREPLIFETIME(As1mpleFpsPlayerState, bReady);
+	DOREPLIFETIME(As1mpleFpsPlayerState, bIsHost);
+	DOREPLIFETIME(As1mpleFpsPlayerState, SelectedHeroIndex);
 }
 
 void As1mpleFpsPlayerState::OnRep_Kills()
@@ -41,6 +45,17 @@ void As1mpleFpsPlayerState::OnRep_Money()
 void As1mpleFpsPlayerState::OnRep_Team()
 {
 	OnTeamChanged(Team);
+}
+
+void As1mpleFpsPlayerState::OnRep_Ready()
+{
+	OnReadyChanged(bReady);
+}
+
+void As1mpleFpsPlayerState::OnRep_SelectedHero()
+{
+	// 只通知 UI（选人高亮等）；模型换肤已改由 Character 自身的复制字段驱动（OnRep_HeroVisual）
+	OnHeroChanged(SelectedHeroIndex);
 }
 
 void As1mpleFpsPlayerState::AddKill()

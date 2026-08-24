@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "s1mpleFpsPlayerState.h"
 #include "s1mpleFpsGameInstance.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOns1FPSFindSessionComplete);
@@ -22,7 +23,7 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void FindSession(int32 MaxSearchResults, bool bIsLAN);
 	UFUNCTION(BlueprintCallable)
-	void JoinSession(int32 SessionIndex);
+	void MyJoinSession(int32 SessionIndex);
 	UFUNCTION(BlueprintCallable)
 	void LeaveSession();
 
@@ -33,6 +34,26 @@ public:
 	int32 GetSessionCount() const;
 	UFUNCTION(BlueprintCallable)
 	void GetSessionInfo(int32 Index, FString& OutName, int32& OutPing, int32& OutCurrentPlayers, int32& OutMaxPlayers) const;
+
+	// === 跨地图携带队伍（大厅→PvP） ===
+	void SetPlayerTeam(const FUniqueNetIdRepl& PlayerId, ETeam Team);
+	ETeam GetPlayerTeam(const FUniqueNetIdRepl& PlayerId) const;
+	void ClearPlayerTeams();
+
+	// === 跨地图携带选中英雄（大厅→PvP） ===
+	void SetPlayerHero(const FUniqueNetIdRepl& PlayerId, int32 HeroIndex);
+	int32 GetPlayerHero(const FUniqueNetIdRepl& PlayerId) const;
+	void ClearPlayerHeroes();
+
+	// === 玩家改名（主菜单设置，登录后应用） ===
+	UFUNCTION(BlueprintCallable)
+	void SetDesiredPlayerName(const FString& Name);
+	UFUNCTION(BlueprintCallable)
+	FString GetDesiredPlayerName() const;
+
+	// 把地图短名（如 "LobbyMap"）解析成完整包路径（/Game/.../LobbyMap）。
+	// PIE 里编辑器会代解析短名，打包后 ServerTravel/OpenLevel 不认短名，必须这里转。
+	static FString ResolveMapPath(const FString& MapName);
 
 	UPROPERTY(BlueprintAssignable)
 	FOns1FPSFindSessionComplete OnFindSessionComplete;
@@ -51,4 +72,13 @@ private:
 	FString TravelMapName;
 	bool bIsHosting = false;
 	bool bIsJoining = false;
+
+	// 唯一 ID → 队伍（跨 ServerTravel 携带）
+	TMap<FUniqueNetIdRepl, ETeam> PlayerTeams;
+
+	// 唯一 ID → 选中英雄索引（跨 ServerTravel 携带）
+	TMap<FUniqueNetIdRepl, int32> PlayerHeroes;
+
+	// 主菜单设置的玩家名
+	FString DesiredPlayerName;
 };

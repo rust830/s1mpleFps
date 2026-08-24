@@ -6,6 +6,7 @@
 #include "OnlineSessionSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
+#include "Misc/PackageName.h"
 
 void Us1mpleFpsGameInstance::Init()
 {
@@ -43,7 +44,7 @@ void Us1mpleFpsGameInstance::HostGame(const FString& SessionName,const FString& 
 	Settings->bAllowJoinInProgress = true;
 	Settings->NumPublicConnections = MaxPlayers;
 	Settings->Set(FName(TEXT("MAPNAME")), SessionName, EOnlineDataAdvertisementType::ViaOnlineService);
-	TravelMapName = LobbyName;
+	TravelMapName = ResolveMapPath(LobbyName);
 
 	SessionInterface->CreateSession(0, NAME_GameSession, *Settings);
 }
@@ -64,7 +65,7 @@ void Us1mpleFpsGameInstance::FindSession(int32 MaxSearchResults, bool bIsLAN)
 	SessionInterface->FindSessions(0, LastSearchResult.ToSharedRef());
 }
 
-void Us1mpleFpsGameInstance::JoinSession(int32 SessionIndex)
+void Us1mpleFpsGameInstance::MyJoinSession(int32 SessionIndex)
 {
 	
 
@@ -165,6 +166,29 @@ void Us1mpleFpsGameInstance::OnDestroySessionComplete(FName SessionName, bool bW
 	}
 }
 
+FString Us1mpleFpsGameInstance::ResolveMapPath(const FString& MapName)
+{
+	// 已经带路径前缀（/Game/...、/Engine/...）就直接用，别再处理
+	if (MapName.StartsWith(TEXT("/")))
+	{
+		return MapName;
+	}
+
+	// 短名 → 完整包路径。PIE 里编辑器会自动解析短名，打包后 ServerTravel 不认，
+	// 会打 "Can't Find URL" 然后回退到 GameDefaultMap（StartMap）。
+	FString FullPath;
+	if (FPackageName::SearchForPackageOnDisk(MapName, &FullPath))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Host] 地图短名 %s → %s"), *MapName, *FullPath);
+		return FullPath;
+	}
+
+	// 兜底：项目地图都在 /Game/FirstPerson/Maps/ 下（见 GameMapsSettings）
+	FullPath = FString::Printf(TEXT("/Game/FirstPerson/Maps/%s"), *MapName);
+	UE_LOG(LogTemp, Warning, TEXT("[Host] 未找到地图 %s，按默认目录兜底为 %s"), *MapName, *FullPath);
+	return FullPath;
+}
+
 int32 Us1mpleFpsGameInstance::GetSessionCount() const
 {
 	if (!LastSearchResult.IsValid()) return 0;
@@ -186,4 +210,52 @@ void Us1mpleFpsGameInstance::GetSessionInfo(int32 Index, FString& OutName, int32
 	OutPing = Result.PingInMs;
 	OutCurrentPlayers = Result.Session.SessionSettings.NumPublicConnections - Result.Session.NumOpenPublicConnections;
 	OutMaxPlayers = Result.Session.SessionSettings.NumPublicConnections;
+}
+
+void Us1mpleFpsGameInstance::SetPlayerTeam(const FUniqueNetIdRepl& PlayerId, ETeam Team)
+{
+	PlayerTeams.Add(PlayerId, Team);
+}
+
+ETeam Us1mpleFpsGameInstance::GetPlayerTeam(const FUniqueNetIdRepl& PlayerId) const
+{
+	if (const ETeam* Found = PlayerTeams.Find(PlayerId))
+	{
+		return *Found;
+	}
+	return ETeam::None;
+}
+
+void Us1mpleFpsGameInstance::ClearPlayerTeams()
+{
+	PlayerTeams.Empty();
+}
+
+void Us1mpleFpsGameInstance::SetPlayerHero(const FUniqueNetIdRepl& PlayerId, int32 HeroIndex)
+{
+	PlayerHeroes.Add(PlayerId, HeroIndex);
+}
+
+int32 Us1mpleFpsGameInstance::GetPlayerHero(const FUniqueNetIdRepl& PlayerId) const
+{
+	if (const int32* Found = PlayerHeroes.Find(PlayerId))
+	{
+		return *Found;
+	}
+	return 0;
+}
+
+void Us1mpleFpsGameInstance::ClearPlayerHeroes()
+{
+	PlayerHeroes.Empty();
+}
+
+void Us1mpleFpsGameInstance::SetDesiredPlayerName(const FString& Name)
+{
+	DesiredPlayerName = Name;
+}
+
+FString Us1mpleFpsGameInstance::GetDesiredPlayerName() const
+{
+	return DesiredPlayerName;
 }

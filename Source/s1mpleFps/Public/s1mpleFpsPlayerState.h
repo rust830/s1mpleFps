@@ -33,6 +33,15 @@ public:
 	int32 TeamId = 0;*/
 	UPROPERTY(ReplicatedUsing=OnRep_Team,BlueprintReadOnly)
 	ETeam Team = ETeam::None;
+	UPROPERTY(ReplicatedUsing=OnRep_Ready,BlueprintReadOnly)
+	bool bReady = false;
+	// 是否为房主（复制，客户端据此显示「开始」按钮）
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	bool bIsHost = false;
+
+	// 选中的英雄/皮肤索引（复制；大厅选完 → 跨地图携带 → PvP 角色据此换模型）
+	UPROPERTY(ReplicatedUsing = OnRep_SelectedHero, BlueprintReadOnly)
+	int32 SelectedHeroIndex = 0;
 
 	UPROPERTY(BlueprintAssignable)
 	FOnScoreChanged OnScoreChanged;
@@ -40,7 +49,10 @@ public:
 	FOnMoneyChanged OnMoneyChanged;
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnTeamChanged(ETeam NewTeam);
-
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnReadyChanged(bool bIsReady);
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnHeroChanged(int32 NewHeroIndex);
 	// 连杀/连死（蓝图只读）
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	int32 KillStreak = 0;
@@ -73,4 +85,10 @@ private:
 
 	UFUNCTION()
 	void OnRep_Team();
+
+	UFUNCTION()
+	void OnRep_Ready();
+
+	UFUNCTION()
+	void OnRep_SelectedHero();
 };

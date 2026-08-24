@@ -8,6 +8,9 @@
 #include "ArmorData.h"
 #include "WeaponDataAsset.h"
 #include "Perception/AISense_Damage.h"
+#include "GameFramework/Pawn.h"
+#include "s1mpleFpsPlayerState.h"
+#include "s1mpleFpsPvPGameMode.h"
 #include "DamageComponent.generated.h"
 
 
@@ -82,11 +85,26 @@ public:
 		{
 			// 仅服务器（Dedicated 或 Listen）执行伤害。纯客户端跳过。
 			if (GetWorld() && GetWorld()->GetNetMode() == NM_Client) {
-				
+
 				return 0.0f;
 			}
+			// 友军伤害开关：团队模式下默认禁用同队伤害（由 GameMode 的 bFriendlyFireEnabled 控制）
+			if (Instigator && GetOwner())
+			{
+				APawn* VictimPawn = Cast<APawn>(GetOwner());
+				APawn* InstigatorPawn = Cast<APawn>(Instigator);
+				As1mpleFpsPlayerState* VictimPS = VictimPawn ? Cast<As1mpleFpsPlayerState>(VictimPawn->GetPlayerState()) : nullptr;
+				As1mpleFpsPlayerState* InstigatorPS = InstigatorPawn ? Cast<As1mpleFpsPlayerState>(InstigatorPawn->GetPlayerState()) : nullptr;
+				if (VictimPS && InstigatorPS && VictimPS->Team != ETeam::None && VictimPS->Team == InstigatorPS->Team)
+				{
+					if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
+					{
+						if (!GM->IsFriendlyFireEnabled()) return 0.0f;
+					}
+				}
+			}
 			if (CurrentHealth <= 0.0f) {
-				
+
 				return 0.0f;
 			}
 			// 1. HitZone 伤害倍率
