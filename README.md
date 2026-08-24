@@ -14,6 +14,11 @@
 - Enhanced Input 全键位绑定 + Player Mappable 运行时改键
 - 脚步声 AI 感知噪音源
 
+### 🧗 攀爬系统
+- 扇形采样检测可攀爬墙体（多射线 + 夹角/顶面法线/高度三重校验）
+- 服务端权威：服务器重新检测（不信任客户端），客户端预测 + Server RPC
+- `bIsClimbing` 复制 + 第一/第三人称攀爬蒙太奇 + 起跳→越顶→落地三段插值
+
 ### 🔫 武器系统（`UWeaponInventoryComponent` + `UTP_WeaponComponent`）
 - 3 武器槽 + 切换（1/2/3/滚轮）
 - 半自动 / 连发 / 全自动 三种射击模式
