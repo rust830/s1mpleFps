@@ -15,14 +15,6 @@ void UHeroEntryWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	// 诊断日志：确认每个卡片是否真的 Construct，以及各 BindWidget / Portrait 是否就位
-	UE_LOG(LogTemp, Log, TEXT("[HeroEntry] Construct: index=%d, Portrait=%d, PortraitImg=%d, Btn=%d, Name=%d"),
-		HeroIndex,
-		(Hero && Hero->Portrait) ? 1 : 0,
-		(PortraitImage != nullptr) ? 1 : 0,
-		(CardButton != nullptr) ? 1 : 0,
-		(NameText != nullptr) ? 1 : 0);
-
 	// BindWidget 成员此时已就位，套用 SetupHero 存下的数据
 	if (PortraitImage && Hero && Hero->Portrait)
 	{
@@ -63,7 +55,6 @@ void UHeroEntryWidget::SetSelected(bool bSelected)
 
 void UHeroEntryWidget::OnCardClicked()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Hero] OnCardClicked: index=%d"), HeroIndex);
 	if (As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(GetOwningPlayer()))
 	{
 		PC->ServerSelectHero(HeroIndex);

@@ -17,11 +17,6 @@ void UGrenadeSlotEntry::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	UE_LOG(LogTemp, Log, TEXT("[GrenadeSlotEntry] Construct 触发：IconImg=%d CountText=%d Highlight=%d"),
-		(GrenadeIconImage != nullptr) ? 1 : 0,
-		(GrenadeCountText != nullptr) ? 1 : 0,
-		(HighlightImage != nullptr) ? 1 : 0);
-
 	// BindWidget 成员此时已就位，套用 SetupSlot 存下的数据
 	if (GrenadeIconImage && GrenadeData && GrenadeData->GrenadeIcon)
 	{

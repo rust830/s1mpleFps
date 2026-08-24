@@ -173,7 +173,6 @@ void ULobbyWidget::RefreshHeroList()
 		HeroEntries.Add(Entry);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Lobby] 英雄卡片已铺 %d 张"), HeroEntries.Num());
 }
 
 void ULobbyWidget::RefreshHeroHighlight()
