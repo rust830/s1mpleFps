@@ -118,7 +118,7 @@ public:
 	FVector MuzzleShakeOffset = FVector::ZeroVector;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FRotator MuzzleShakeRotation = FRotator::ZeroRotator;
-	// �����ҽ�ʱ��ԭʼ��Ա任������ÿ֡������أ�
+	// 开火时保存原始枪口位置/旋转，供每帧枪口震动复位
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector MuzzleOriginalLocation = FVector::ZeroVector;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

@@ -23,4 +23,6 @@ public:
 	int32 price = 20;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Medicine")
 	FName MedicineName;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Medicine")
+	UTexture2D* Icon = nullptr;
 };

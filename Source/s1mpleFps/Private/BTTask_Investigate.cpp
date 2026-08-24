@@ -66,7 +66,7 @@ void UBTTask_Investigate::TickTask(UBehaviorTreeComponent& OwnerComponent, uint8
 
 	FBTInvestigateTaskMemory* Memory = reinterpret_cast<FBTInvestigateTaskMemory*>(NodeMemory);
 
-	// �ƶ��׶Σ��� AI �ߵ�Ŀ���
+	// 移动阶段：等 AI 走到目标点
 	if (!Memory->bResearchLoaction)
 	{
 		if (!AI->IsFollowingAPath())
@@ -76,11 +76,11 @@ void UBTTask_Investigate::TickTask(UBehaviorTreeComponent& OwnerComponent, uint8
 		return;
 	}
 
-	// �����׶Σ�ԭ����������ʱ
+	// 搜索阶段：原地观察一段时间
 	Memory->SerachTimeRemaining -= DeltaTime;
 	if (Memory->SerachTimeRemaining <= 0.0f)
 	{
-		// ��������������ѵ����λ�ã������ظ�����ͬһ��
+		// 调查结束清空记忆位置，避免重复调查同一点
 		BB->SetValueAsVector("LastSeenLocation", FVector::ZeroVector);
 		BB->SetValueAsVector("LastDamageLocation", FVector::ZeroVector);
 		BB->SetValueAsVector("LastHeardLocation", FVector::ZeroVector);

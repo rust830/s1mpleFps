@@ -95,22 +95,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread")
 	float SpreadRecoverySpeed = 6.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MuzzleShake")
-	float MuzzleShakeIntensity = 1.5f;       // ÿ���������ǿ��
+	float MuzzleShakeIntensity = 1.5f;       // 每发子弹的震动强度
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MuzzleShake")
-	float MuzzleShakeDecaySpeed = 12.0f;     // ˥���ٶȣ�Խ�����Խ�죩
+	float MuzzleShakeDecaySpeed = 12.0f;     // 衰减速度，越大恢复越快
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MuzzleShake")
-	FVector2D MuzzleShakePitchRange = FVector2D(-1.5f, 0.5f);  // ���������Χ
+	FVector2D MuzzleShakePitchRange = FVector2D(-1.5f, 0.5f);  // 俯仰抖动范围
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MuzzleShake")
-	FVector2D MuzzleShakeYawRange = FVector2D(-0.3f, 0.3f);    // ƫ�������Χ
+	FVector2D MuzzleShakeYawRange = FVector2D(-0.3f, 0.3f);    // 偏航抖动范围
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MuzzleShake")
-	FVector2D MuzzleShakeXRange = FVector2D(-0.3f, 0.3f);      // ����λ�Ʒ�Χ(cm)
+	FVector2D MuzzleShakeXRange = FVector2D(-0.3f, 0.3f);      // X 方向位移范围(cm)
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MuzzleShake")
-	FVector2D MuzzleShakeZRange = FVector2D(-0.5f, 0.1f);      // ����λ�Ʒ�Χ(cm)
+	FVector2D MuzzleShakeZRange = FVector2D(-0.5f, 0.1f);      // Z 方向位移范围(cm)
 	UPROPERTY(EditAnywhere,BlueprintReadWrite)
 	float OptimalCombatDistance = 5000.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData")

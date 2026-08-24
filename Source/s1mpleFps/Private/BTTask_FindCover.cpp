@@ -25,7 +25,7 @@ EBTNodeResult::Type UBTTask_FindCover::ExecuteTask(UBehaviorTreeComponent& Owner
 	Memory->bMovingToCover = false;
 	Memory->bHoldingCover = false;
 	Memory->HoldingTime = 0.0f;
-	//����queryʱTargetLocation
+	// 记录 EQS 查询时的目标位置
 	if (AActor* Target = Cast<AActor>(BB->GetValueAsObject("TargetActor"))) {
 		Memory->EnemyLocationAtQuery = Target->GetActorLocation();
 	}

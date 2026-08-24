@@ -118,6 +118,13 @@ void UTP_WeaponComponent::ServerReload_Implementation()
 void UTP_WeaponComponent::StartAiming()
 {
 	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
+
+	// 第三人称开镜没有配套动画、武器也隐藏，直接切回第一人称用第一人称机瞄
+	if (Character->bIsThirdPerson)
+	{
+		Character->ForceToFirstPerson();
+	}
+
 	bIsAiming = true;
 	TargetFOV = ADSFOV;
 	bHasValidADSTransform = false;

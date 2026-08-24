@@ -9,6 +9,7 @@
 #include "Engine/LocalPlayer.h"
 #include "EnhancedInputSubsystems.h"
 #include "UserSettings/EnhancedInputUserSettings.h"
+#include "s1mpleFpsGameInstance.h"
 
 void UBPFL_GameUtils::RestartGame(UObject* WorldContext)
 {
@@ -40,7 +41,9 @@ void UBPFL_GameUtils::HostGame(UObject* WorldContext, const FString& MapName)
 	UWorld* World = GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::LogAndReturnNull);
 	if (World)
 	{
-		World->ServerTravel(MapName + TEXT("?listen"));
+		// 短名 → 全路径（打包后 ServerTravel 不认短名，会回退到默认地图）
+		const FString FullPath = Us1mpleFpsGameInstance::ResolveMapPath(MapName);
+		World->ServerTravel(FullPath + TEXT("?listen"));
 	}
 }
 
