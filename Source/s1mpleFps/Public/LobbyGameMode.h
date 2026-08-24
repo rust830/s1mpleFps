@@ -25,6 +25,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
 	TSoftObjectPtr<UWorld> PvPMap;
 
+	// PvP 地图要用的 GameMode（ServerTravel 时显式指定，否则 Listen Server 会把大厅 GameMode 自动带过去）
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+	TSubclassOf<AGameModeBase> PvPGameModeClass;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
 	bool bAutoStart = true;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
@@ -36,16 +40,20 @@ public:
 	int32 GetPlayerCount();
 
 	bool CanStartGame();
+
 	bool IsHost(APlayerController* PC) const;
+	UFUNCTION(BlueprintCallable)
+	bool AreAllPlayersReady()const;
+	void CheckStartCondition();
 protected:
 	TWeakObjectPtr<APlayerController> HostPC;
 	FTimerHandle CountdownTimerHandle;
 	bool bCountdownStarted = false;
 
-	void CheckStartCondition();
+
 	void StartGame();
 
-	// ��ͼ�¼�����ѡ��
+	// 蓝图事件：玩家加入大厅
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnPlayerJoinedLobby(APlayerController* NewPlayer);
 
