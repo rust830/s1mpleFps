@@ -26,18 +26,6 @@
 			"TargetAllowList": [
 				"Editor"
 			]
-		},
-		{
-			"Name": "DLSS",
-			"Enabled": true
-		},
-		{
-			"Name": "StreamlineDLSSG",
-			"Enabled": true
-		},
-		{
-			"Name": "StreamlineReflex",
-			"Enabled": true
 		}
 	]
 }

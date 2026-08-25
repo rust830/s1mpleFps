@@ -7,7 +7,6 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
 #include "Misc/PackageName.h"
-#include "StreamlineLibraryReflex.h"
 
 void Us1mpleFpsGameInstance::Init()
 {
@@ -19,23 +18,6 @@ void Us1mpleFpsGameInstance::Init()
 	}
 	else {
 		
-	}
-}
-
-void Us1mpleFpsGameInstance::OnStart()
-{
-	Super::OnStart();
-
-	// RTX 4070 Laptop：帧生成 + Reflex 低延迟降低输入延迟，笔记本上尤其有用。
-	// 默认 Enabled（低延迟）；GPU 有余量可改 Boost（更低延迟但功耗/发热略增）。
-	if (UStreamlineLibraryReflex::IsReflexSupported())
-	{
-		UStreamlineLibraryReflex::SetReflexMode(EStreamlineReflexMode::Enabled);
-		UE_LOG(LogTemp, Log, TEXT("[DLSS] NVIDIA Reflex 低延迟已开启 (Enabled)"));
-	}
-	else
-	{
-		UE_LOG(LogTemp, Log, TEXT("[DLSS] 当前硬件/驱动不支持 Reflex，已跳过"));
 	}
 }
 
