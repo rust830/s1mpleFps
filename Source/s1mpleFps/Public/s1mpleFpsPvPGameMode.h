@@ -7,6 +7,7 @@
 
 class As1mpleFpsPlayerState;
 class USoundBase;
+class AControlArea;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPvPStatsUpdated, int32, Kills, int32, Deaths, int32, Score);
 
@@ -25,6 +26,20 @@ public:
 public:
 	UPROPERTY(EditAnywhere,BlueprintReadWrite)
 	float MatchDuration = 600.f;
+	// 团队积分获胜目标：击杀分 + 占点分达到该值立即获胜
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rules")
+	int32 ScoreLimit = 3000;
+	// 击杀给团队的积分（基本盘，全程不变，不受时间缩放）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Control")
+	int32 KillScore = 100;
+	// 占点得分后期放大系数上限：实际 = 基础分 × (1 + 进度 × (上限-1))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Control")
+	float ControlScoreMaxMultiplier = 3.0f;
+	// 轮换间隔：前期长、后期短（秒）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Control")
+	float ControlIntervalStart = 60.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Control")
+	float ControlIntervalEnd = 30.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 KillLimits = 30;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -79,9 +94,23 @@ public:
 	EKillFeedColorMode KillFeedColorMode = EKillFeedColorMode::FixedByTeam;
 
 	UFUNCTION()
-	void CheckWinnerCondition(As1mpleFpsPlayerState* PS);
+	void CheckWinnerCondition(ETeam Team);
+
+	// ---- 占点轮换调度（权威端） ----
+	void BeginControlRotation();                              // 比赛开始时收集点位并激活第一个
+	void ActivateNextControlPoint();
+	void OnControlPointCaptured(AControlArea* Area, ETeam Team);
+	float GetControlScoreMultiplier() const;                  // 时间系数（前期 1 → 后期封顶）
+	int32 ComputeControlScore(float BaseScore) const;         // 基础分 × 时间系数
+	float GetCurrentControlInterval() const;                  // 前期长间隔 → 后期短间隔
 
 private:
 	// 从 GameInstance 恢复大厅选好的队伍 + 英雄（普通登录走 PostLogin，无缝跳图走 HandleSeamlessTravelPlayer）
 	void RestoreCarriedPlayer(AController* NewPC);
+
+	// ---- 占点轮换调度状态（服务器本地） ----
+	TArray<AControlArea*> ControlAreas;
+	AControlArea* ActiveControlArea = nullptr;
+	FTimerHandle ControlRotateHandle;
+	int32 NextControlIndex = 0;
 };

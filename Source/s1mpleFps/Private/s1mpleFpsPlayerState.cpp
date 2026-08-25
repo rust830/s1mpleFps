@@ -69,7 +69,7 @@ void As1mpleFpsPlayerState::AddKill()
 	{
 		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
 		{
-			GM->CheckWinnerCondition(this);
+			GM->CheckWinnerCondition(Team);
 		}
 	}
 }

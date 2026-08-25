@@ -64,7 +64,7 @@ void As1mpleFpsGameState::OvertimeCountDown()
 void As1mpleFpsGameState::OnMatchTimeUp()
 {
 	if (bMatchEnded) return;
-	// 时间到：团队击杀多者获胜
+	// 时间到：团队积分多者获胜（同分看击杀）
 	ETeam Leading = GetLeadingTeam();
 	if (Leading != ETeam::None) {
 		AnnounceWinner(GetTeamName(Leading), false);
@@ -88,6 +88,13 @@ void As1mpleFpsGameState::TickWarmUp()
 		GetWorldTimerManager().ClearTimer(WarmUpHandle);
 
 		bMatchStarted = true;
+
+		// 比赛正式开始：启动占点轮换（热身期间不激活任何点）
+		if (As1mpleFpsPvPGameMode* GM = GetWorld()->GetAuthGameMode<As1mpleFpsPvPGameMode>())
+		{
+			GM->BeginControlRotation();
+		}
+
 		GetWorldTimerManager().SetTimer(CountdownHandle, this, &As1mpleFpsGameState::TickCountdown, 1.0f, true);
 	}
 }
@@ -112,6 +119,8 @@ void As1mpleFpsGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(As1mpleFpsGameState, bIsWarmUp);
 	DOREPLIFETIME(As1mpleFpsGameState, BlueTeamKills);
 	DOREPLIFETIME(As1mpleFpsGameState, RedTeamKills);
+	DOREPLIFETIME(As1mpleFpsGameState, BlueTeamScore);
+	DOREPLIFETIME(As1mpleFpsGameState, RedTeamScore);
 	DOREPLIFETIME(As1mpleFpsGameState, OvertimeCount);
 	DOREPLIFETIME(As1mpleFpsGameState, KillFeedColorMode);
 }
@@ -143,7 +152,7 @@ void As1mpleFpsGameState::OnRep_WarmUpRemaining()
 
 void As1mpleFpsGameState::OnRep_TeamScore()
 {
-	OnTeamScoreChanged.Broadcast(BlueTeamKills, RedTeamKills);
+	OnTeamScoreChanged.Broadcast(BlueTeamScore, RedTeamScore, BlueTeamKills, RedTeamKills);
 }
 
 // === 团队辅助 ===
@@ -155,7 +164,25 @@ void As1mpleFpsGameState::AddTeamKill(ETeam Team)
 	else if (Team == ETeam::Red) {
 		RedTeamKills++;
 	}
-	OnTeamScoreChanged.Broadcast(BlueTeamKills, RedTeamKills);
+	OnTeamScoreChanged.Broadcast(BlueTeamScore, RedTeamScore, BlueTeamKills, RedTeamKills);
+}
+
+void As1mpleFpsGameState::AddTeamScore(ETeam Team, int32 Points)
+{
+	if (Team == ETeam::Blue) {
+		BlueTeamScore += Points;
+	}
+	else if (Team == ETeam::Red) {
+		RedTeamScore += Points;
+	}
+	OnTeamScoreChanged.Broadcast(BlueTeamScore, RedTeamScore, BlueTeamKills, RedTeamKills);
+}
+
+int32 As1mpleFpsGameState::GetTeamScore(ETeam Team) const
+{
+	if (Team == ETeam::Blue) return BlueTeamScore;
+	if (Team == ETeam::Red) return RedTeamScore;
+	return 0;
 }
 
 int32 As1mpleFpsGameState::GetTeamKills(ETeam Team) const
@@ -174,8 +201,13 @@ int32 As1mpleFpsGameState::GetOvertimeStartTeamKills(ETeam Team) const
 
 ETeam As1mpleFpsGameState::GetLeadingTeam() const
 {
-	if (BlueTeamKills == RedTeamKills) return ETeam::None;
-	return BlueTeamKills > RedTeamKills ? ETeam::Blue : ETeam::Red;
+	// 主条件：团队积分（占点得分）多者领先
+	if (BlueTeamScore != RedTeamScore)
+		return BlueTeamScore > RedTeamScore ? ETeam::Blue : ETeam::Red;
+	// 同分：击杀多者领先
+	if (BlueTeamKills != RedTeamKills)
+		return BlueTeamKills > RedTeamKills ? ETeam::Blue : ETeam::Red;
+	return ETeam::None;
 }
 
 FString As1mpleFpsGameState::GetTeamName(ETeam Team) const

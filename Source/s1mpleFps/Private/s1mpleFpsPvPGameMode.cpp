@@ -4,6 +4,7 @@
 #include "s1mpleFpsGameInstance.h"
 #include "s1mpleFpsPlayerController.h"
 #include "s1mpleFpsCharacter.h"
+#include "ControlArea.h"
 #include "GameFramework/PlayerStart.h"
 #include "EngineUtils.h"
 
@@ -32,6 +33,7 @@ void As1mpleFpsPvPGameMode::OnKill(APlayerState* KillerPS, APlayerState* VictimP
 		if (GS && !bSameTeam && KillerTeam != ETeam::None)
 		{
 			GS->AddTeamKill(KillerTeam); // 先记团队分，AddKill 内部的 CheckWinnerCondition 才读得到最新团队分
+			GS->AddTeamScore(KillerTeam, KillScore); // 击杀也给团队积分（基本盘，不受时间缩放）
 		}
 
 		int32 Reward = CalculateKillReward(Killer);
@@ -187,25 +189,100 @@ void As1mpleFpsPvPGameMode::OnMatchEnd()
 	}
 }
 
-void As1mpleFpsPvPGameMode::CheckWinnerCondition(As1mpleFpsPlayerState* PS)
+void As1mpleFpsPvPGameMode::CheckWinnerCondition(ETeam Team)
 {
-	if (!PS) return;
-	ETeam Team = PS->Team;
 	if (Team == ETeam::None) return;
 
 	As1mpleFpsGameState* GS = GetGameState<As1mpleFpsGameState>();
 	if (!GS || GS->bMatchEnded) return;
 
-	// 常规：团队总击杀达标
-	if (GS->GetTeamKills(Team) >= KillLimits) {
+	// 常规：团队积分（击杀分 + 占点分）达标
+	if (GS->GetTeamScore(Team) >= ScoreLimit) {
 		GS->AnnounceWinner(GS->GetTeamName(Team), true);
 		return;
 	}
-	// 加时：团队在加时内新增击杀达标
+	// 加时：团队在加时内新增击杀达标（黄金击杀）
 	if (GS->bSuddenDeath) {
 		int32 OTKills = GS->GetTeamKills(Team) - GS->GetOvertimeStartTeamKills(Team);
 		if (OTKills >= OvertimeKillTargets) {
 			GS->AnnounceWinner(GS->GetTeamName(Team), true);
 		}
 	}
+}
+
+// ==== 占点轮换调度 ====
+void As1mpleFpsPvPGameMode::BeginControlRotation()
+{
+	if (!HasAuthority()) return;
+
+	ControlAreas.Reset();
+	for (TActorIterator<AControlArea> It(GetWorld()); It; ++It)
+	{
+		ControlAreas.Add(*It);
+	}
+	if (ControlAreas.Num() == 0) return;
+
+	ActivateNextControlPoint();
+}
+
+void As1mpleFpsPvPGameMode::ActivateNextControlPoint()
+{
+	if (!HasAuthority() || ControlAreas.Num() == 0) return;
+
+	if (ActiveControlArea)
+	{
+		ActiveControlArea->SetActive(false);
+		ActiveControlArea = nullptr;
+	}
+
+	AControlArea* Next = ControlAreas[NextControlIndex % ControlAreas.Num()];
+	NextControlIndex++;
+	ActiveControlArea = Next;
+	ActiveControlArea->SetActive(true);
+}
+
+void As1mpleFpsPvPGameMode::OnControlPointCaptured(AControlArea* Area, ETeam Team)
+{
+	if (!HasAuthority() || !Area) return;
+
+	// 防御：非活跃点被占（异常），直接关掉
+	if (Area != ActiveControlArea)
+	{
+		Area->SetActive(false);
+		return;
+	}
+
+	ActiveControlArea = nullptr;
+	Area->SetActive(false);
+
+	// 比赛已结束则不再排下一轮
+	As1mpleFpsGameState* GS = GetGameState<As1mpleFpsGameState>();
+	if (GS && GS->bMatchEnded) return;
+
+	// 延时激活下一个点（间隔随比赛进度缩短）
+	float Interval = GetCurrentControlInterval();
+	GetWorldTimerManager().SetTimer(ControlRotateHandle, this,
+		&As1mpleFpsPvPGameMode::ActivateNextControlPoint, Interval, false);
+}
+
+float As1mpleFpsPvPGameMode::GetControlScoreMultiplier() const
+{
+	As1mpleFpsGameState* GS = GetGameState<As1mpleFpsGameState>();
+	if (!GS || MatchDuration <= 0.f) return 1.0f;
+	float Ratio = FMath::Clamp(1.0f - GS->MatchTimeRemaining / MatchDuration, 0.f, 1.f);
+	return 1.0f + Ratio * (ControlScoreMaxMultiplier - 1.0f);
+}
+
+int32 As1mpleFpsPvPGameMode::ComputeControlScore(float BaseScore) const
+{
+	return FMath::RoundToInt(BaseScore * GetControlScoreMultiplier());
+}
+
+float As1mpleFpsPvPGameMode::GetCurrentControlInterval() const
+{
+	As1mpleFpsGameState* GS = GetGameState<As1mpleFpsGameState>();
+	if (!GS || MatchDuration <= 0.f) return ControlIntervalStart;
+	float Ratio = FMath::Clamp(GS->MatchTimeRemaining / MatchDuration, 0.f, 1.f);
+	// Ratio 1（前期）→ Start（长）；0（后期）→ End（短）
+	return FMath::Lerp(ControlIntervalEnd, ControlIntervalStart, Ratio);
 }

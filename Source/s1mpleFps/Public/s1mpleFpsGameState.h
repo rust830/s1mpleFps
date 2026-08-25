@@ -14,7 +14,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMatchEnded, const FString&, Winn
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSuddenDeath);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOvertimeChanged, float, OvertimeRemaining);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWarmUpTimeChanged, float, WarmUpTimeRemaining);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTeamScoreChanged, int32, BlueKills, int32, RedKills);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnTeamScoreChanged, int32, BlueScore, int32, RedScore, int32, BlueKills, int32, RedKills);
 
 // 击杀条颜色规则（类似 LOL 两种显示）
 UENUM(BlueprintType)
@@ -64,7 +64,11 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_TeamScore, BlueprintReadOnly)
 	int32 BlueTeamKills = 0;
 	UPROPERTY(ReplicatedUsing = OnRep_TeamScore, BlueprintReadOnly)
+	int32 BlueTeamScore = 0;
+	UPROPERTY(ReplicatedUsing = OnRep_TeamScore, BlueprintReadOnly)
 	int32 RedTeamKills = 0;
+	UPROPERTY(ReplicatedUsing = OnRep_TeamScore, BlueprintReadOnly)
+	int32 RedTeamScore = 0;
 
 	// 当前已进行的加时赛轮次（用于「加时次数上限」判断）
 	UPROPERTY(Replicated, BlueprintReadOnly)
@@ -85,9 +89,11 @@ public:
 
 	// === 团队辅助 ===
 	void AddTeamKill(ETeam Team);
+	void AddTeamScore(ETeam Team, int32 Points);        // 占点得分累加 + 广播
 	int32 GetTeamKills(ETeam Team) const;
+	int32 GetTeamScore(ETeam Team) const;
 	int32 GetOvertimeStartTeamKills(ETeam Team) const;
-	ETeam GetLeadingTeam() const;                       // 平局返回 ETeam::None
+	ETeam GetLeadingTeam() const;                       // 积分多者胜，同分击杀多者胜；全平返回 ETeam::None
 	FString GetTeamName(ETeam Team) const;              // "Blue" / "Red" / "None"
 	As1mpleFpsPlayerState* FindStrongestPlayer() const; // 按现有 Kills→Deaths→Scores 优先级
 	UPROPERTY(BlueprintAssignable)

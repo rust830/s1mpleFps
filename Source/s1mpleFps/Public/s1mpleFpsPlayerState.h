@@ -13,7 +13,8 @@ UENUM(BlueprintType)
 enum class ETeam :uint8 {
 	None,
 	Blue,
-	Red
+	Red,
+	Max
 };
 UCLASS()
 class S1MPLEFPS_API As1mpleFpsPlayerState : public APlayerState
