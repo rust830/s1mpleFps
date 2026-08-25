@@ -17,6 +17,7 @@ Thumbs.db
 
 # Config with local secrets — push DefaultEngine.ini.template instead
 Config/DefaultEngine.ini
+Config/DefaultGameUserSettings.ini
 
 # Packaged builds — 打包产物，重新打包即可生成
 Windows/
