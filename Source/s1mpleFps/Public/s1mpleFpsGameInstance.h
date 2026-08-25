@@ -17,6 +17,7 @@ class S1MPLEFPS_API Us1mpleFpsGameInstance : public UGameInstance
 	GENERATED_BODY()
 public:
 	virtual void Init() override;
+	virtual void OnStart() override;
 
 	UFUNCTION(BlueprintCallable)
 	void HostGame(const FString& SessionName,const FString& LobbyName, int32 MaxPlayers, bool bIsLAN);

@@ -9,6 +9,6 @@ public class s1mpleFps : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicIncludePaths.Add(ModuleDirectory);
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AIModule", "UMG", "GameplayTasks", "NavigationSystem","OnlineSubsystem","OnlineSubsystemUtils","OnlineSubsystemSteam","SlateCore","Niagara"});
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AIModule", "UMG", "GameplayTasks", "NavigationSystem","OnlineSubsystem","OnlineSubsystemUtils","OnlineSubsystemSteam","SlateCore","Niagara","StreamlineReflexBlueprint"});
 	}
 }
