@@ -17,6 +17,7 @@ class UInputMappingContext;
 class UInputAction;
 class UUserWidget;
 class UHUDWidget;
+class UMinimapWidget;
 class UBuyEquipmentData;
 class As1mpleFpsCharacter;
 
@@ -56,6 +57,8 @@ protected:
 	UInputAction* OpenAllChat;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
 	UInputAction* EscapeAction;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input)
+	UInputAction* MapAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Buy")
 	TObjectPtr<UBuyEquipmentData> BuyEquipmentData;
@@ -93,6 +96,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 		void ToggleBuyMenu();
 	UFUNCTION(BlueprintCallable)
+		void ToggleBigMap();
+	UFUNCTION(BlueprintCallable)
 		void OnChatTextCommitted(const FText& Text, ETextCommit::Type CommitMethod);
 
 public:
@@ -102,6 +107,14 @@ public:
 		TSubclassOf<UHUDWidget> HUDWidgetClass;
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 		TObjectPtr<UHUDWidget> HUDWidget;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+		TSubclassOf<UMinimapWidget> MinimapWidgetClass;
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+		TObjectPtr<UMinimapWidget> MinimapWidget;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+		TSubclassOf<UMinimapWidget> BigMapWidgetClass;
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+		TObjectPtr<UMinimapWidget> BigMapWidget;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 		TSubclassOf<UUserWidget> BuyMenuWidgetClass;
 	UPROPERTY(BlueprintReadOnly, Category = "UI")

@@ -4,6 +4,7 @@
 #include "s1mpleFpsPlayerController.h"
 #include "ChatWidget.h"
 #include "HUDWidget.h"
+#include "MinimapWidget.h"
 #include "s1mpleFpsCharacter.h"
 #include "HealthComponent.h"
 #include "WeaponInventoryComponent.h"
@@ -105,12 +106,22 @@ void As1mpleFpsPlayerController::BeginPlay()
 		{
 			
 		}
+		// 创建小地图（刷新玩家/占点点位图标）
+		if (MinimapWidgetClass)
+		{
+			MinimapWidget = CreateWidget<UMinimapWidget>(this, MinimapWidgetClass);
+			if (MinimapWidget)
+			{
+				MinimapWidget->AddToViewport();
+			}
+		}
+
 		SetInputMode(FInputModeGameOnly());
 		bShowMouseCursor = false;
 	}
 	else
 	{
-		
+
 	}
 }
 
@@ -123,6 +134,10 @@ void As1mpleFpsPlayerController::SetupInputComponent()
 		if (ScoreboardAction)
 		{
 			Input->BindAction(ScoreboardAction, ETriggerEvent::Started, this, &As1mpleFpsPlayerController::ToggleScoreboard);
+		}
+		if (MapAction)
+		{
+			Input->BindAction(MapAction, ETriggerEvent::Started, this, &As1mpleFpsPlayerController::ToggleBigMap);
 		}
 		if (BuyMenuAction) {
 			Input->BindAction(BuyMenuAction, ETriggerEvent::Started, this, &As1mpleFpsPlayerController::ToggleBuyMenu);
@@ -138,6 +153,25 @@ void As1mpleFpsPlayerController::SetupInputComponent()
 		}
 	}
 
+}
+
+void As1mpleFpsPlayerController::ToggleBigMap()
+{
+	if (!BigMapWidget && BigMapWidgetClass)
+	{
+		BigMapWidget = CreateWidget<UMinimapWidget>(this, BigMapWidgetClass);
+		if (BigMapWidget)
+		{
+			BigMapWidget->AddToViewport();
+			BigMapWidget->SetVisibility(ESlateVisibility::Collapsed); // 默认隐藏，按 Tab 才显示
+		}
+	}
+
+	if (BigMapWidget)
+	{
+		const bool bVisible = BigMapWidget->GetVisibility() == ESlateVisibility::Visible;
+		BigMapWidget->SetVisibility(bVisible ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
 }
 
 void As1mpleFpsPlayerController::OpenChatBox(bool bIsTeam)
