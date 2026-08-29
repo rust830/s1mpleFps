@@ -4,6 +4,11 @@
 
 ![s1mpleFps 游戏截图](s1mpleFps.png)
 
+## 🎬 演示与下载
+
+- **演示视频**：[Bilibili](https://www.bilibili.com/video/BV1rM426qExX/)
+- **打包版下载**：[百度网盘](https://pan.baidu.com/s/1T7_RStAYRo9_8ddxOflpZQ?pwd=tw5y)　提取码：`tw5y`
+
 ## 技术栈
 
 `Unreal Engine 5.8` `C++` `Steam OnlineSubsystem` `Enhanced Input` `Behavior Tree` `EQS` `UMG` `Niagara`
