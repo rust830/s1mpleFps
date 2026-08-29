@@ -22,13 +22,13 @@
 #include "TimerManager.h"
 #include "s1mpleFpsPlayerController.h"
 #include "HUDWidget.h"
+#include "BoneContainer.h"
 
 
 UTP_WeaponComponent::UTP_WeaponComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
-	MuzzleOffset = FVector(100.0f, 0.0f, 10.0f);
 	// 武器只在自己（本地控制者）视角可见，敌人视角看不到
 	SetOnlyOwnerSee(true);
 }
@@ -65,22 +65,9 @@ void UTP_WeaponComponent::OnRep_SpareAmmo()
 void UTP_WeaponComponent::OnRep_WeaponData()
 {
 	if (!WeaponData) return;
-	// 客户端收到 WeaponData 时补充网格和音效
+	// 客户端收到 WeaponData 时补充网格（音效/动画/输入配置现在直接从 WeaponData 读，不再本地缓存）
 	if (!GetSkeletalMeshAsset() && WeaponData->WeaponMesh)
 		SetSkeletalMeshAsset(WeaponData->WeaponMesh);
-	if (!FireSound && WeaponData->FireSound)
-		FireSound = WeaponData->FireSound;
-	if (!MuzzleFlashEffect && WeaponData->MuzzleFlashEffect)
-		MuzzleFlashEffect = WeaponData->MuzzleFlashEffect;
-	if (!FireAnimation && WeaponData->FireAnimation)
-		FireAnimation = WeaponData->FireAnimation;
-	if (!ReloadAnimation && WeaponData->ReloadAnimation)
-		ReloadAnimation = WeaponData->ReloadAnimation;
-	if (!FireAction) FireAction = WeaponData->WeaponFireAction;
-	if (!ReloadAction) ReloadAction = WeaponData->WeaponReloadAction;
-	if (!SwitchAction) SwitchAction = WeaponData->WeaponSwitchAction;
-	if (!AimAction) AimAction = WeaponData->WeaponAimAction;
-	if (!FireMappingContext) FireMappingContext = WeaponData->WeaponMappingContext;
 
 	// WeaponData may replicate after CurrentWeapon; refresh HUD when it arrives.
 	if (Character && Character->IsLocallyControlled())
@@ -117,7 +104,7 @@ void UTP_WeaponComponent::ServerReload_Implementation()
 
 void UTP_WeaponComponent::StartAiming()
 {
-	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
+	if (!Character || !WeaponData || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 
 	// 第三人称开镜没有配套动画、武器也隐藏，直接切回第一人称用第一人称机瞄
 	if (Character->bIsThirdPerson)
@@ -126,51 +113,53 @@ void UTP_WeaponComponent::StartAiming()
 	}
 
 	bIsAiming = true;
-	TargetFOV = ADSFOV;
+	TargetFOV = WeaponData->ADSFOV;
 	bHasValidADSTransform = false;
 
-	if (Character->bIsThirdPerson)
-	{
-		// 第三人称：走弹簧臂，不动武器
-		SavedSpringArmLength = Character->ThirdPersonSpringArm->TargetArmLength;
-		SavedSocketOffset = Character->ThirdPersonSpringArm->SocketOffset;
-		SavedTargetOffset = Character->ThirdPersonSpringArm->TargetOffset;
-		Character->ThirdPersonSpringArm->TargetArmLength = ADSSpringArmLength;
-		Character->ThirdPersonSpringArm->SocketOffset = ADSSocketOffset;
-		Character->ThirdPersonSpringArm->TargetOffset = ADSTargetOffset;
-		Character->GetMesh()->SetOwnerNoSee(true);
-		return;
-	}
+	/*	if (Character->bIsThirdPerson)
+		{
+			// 第三人称：走弹簧臂，不动武器,暂时弃用
+			SavedSpringArmLength = Character->ThirdPersonSpringArm->TargetArmLength;
+			SavedSocketOffset = Character->ThirdPersonSpringArm->SocketOffset;
+			SavedTargetOffset = Character->ThirdPersonSpringArm->TargetOffset;
+			Character->ThirdPersonSpringArm->TargetArmLength = WeaponData->ADSSpringArmLength;
+			Character->ThirdPersonSpringArm->SocketOffset = WeaponData->ADSSocketOffset;
+			Character->ThirdPersonSpringArm->TargetOffset = WeaponData->ADSTargetOffset;
+			Character->GetMesh()->SetOwnerNoSee(true);
+			return;
+		}*/
 
-	// 第一人称：机瞄相对变换只算一次并缓存（相机与 GripPoint 刚性连接，该变换不随视角变化）
-	if (DoesSocketExist(SightAlignSocketName) && DoesSocketExist(MuzzleSocketName))
+		// 第一人称：这里只校验插槽并算一次用于日志。真正的机瞄目标在 UpdateWeaponAim 里每帧重算，
+		// 因为手臂 AnimBP 一直在动、GripPoint 相对相机的位置会变，缓存一次会导致每次开镜位置不同。
+		// 使用 SightAlignSocketName 代替 MuzzleSocketName 来确定瞄准轴
+	if (DoesSocketExist(WeaponData->AimCenterSocketName) && DoesSocketExist(WeaponData->SightAlignSocketName))
 	{
-		CachedADSRelativeTransform = ComputeADSRelativeTransform();
+		FTransform ADSRel = ComputeADSRelativeTransform();
 		bHasValidADSTransform = true;
-		UE_LOG(LogTemp, Log, TEXT("[ADS] %s 机瞄相对变换缓存成功：位置=%s 旋转=%s"),
+		UE_LOG(LogTemp, Log, TEXT("[ADS] %s 机瞄对齐计算成功：位置=%s 旋转=%s"),
 			*GetName(),
-			*CachedADSRelativeTransform.GetLocation().ToString(),
-			*CachedADSRelativeTransform.GetRotation().Rotator().ToString());
+			*ADSRel.GetLocation().ToString(),
+			*ADSRel.GetRotation().Rotator().ToString());
 	}
 	else
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[ADS] 武器 %s 缺少插槽 '%s' 或 '%s'，机瞄对齐失效。请检查枪的骨骼体插槽名，或调整 SightAlignSocketName / MuzzleSocketName。"),
-			*GetName(), *SightAlignSocketName.ToString(), *MuzzleSocketName.ToString());
+			TEXT("[ADS] 武器 %s 缺少插槽 '%s' 或 '%s'，机瞄对齐失效。请检查枪的骨骼体插槽名，或调整 AimCenterSocketName / SightAlignSocketName。"),
+			*GetName(), *WeaponData->AimCenterSocketName.ToString(), *WeaponData->SightAlignSocketName.ToString());
 	}
 }
 
 void UTP_WeaponComponent::EndAiming()
 {
-	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
+	if (!Character || !WeaponData || Character->WeaponInventoryComponent->CurrentWeapon != this) return;
 	bIsAiming = false;
-	TargetFOV = DefaultFOV;
+	TargetFOV = WeaponData->DefaultFOV;
 	if (Character->bIsThirdPerson) {
 		Character->ThirdPersonSpringArm->TargetArmLength = SavedSpringArmLength;
 		Character->ThirdPersonSpringArm->SocketOffset = SavedSocketOffset;
 		Character->ThirdPersonSpringArm->TargetOffset = SavedTargetOffset;
-			Character->GetMesh()->SetOwnerNoSee(false);
-		}
+		Character->GetMesh()->SetOwnerNoSee(false);
+	}
 }
 
 void UTP_WeaponComponent::ToggleAiming()
@@ -186,7 +175,7 @@ void UTP_WeaponComponent::ToggleAiming()
 
 void UTP_WeaponComponent::Equip()
 {
-	
+
 	bIsEquipped = true;
 	// 武器可见性规则：
 	// 1. 本地控制 + 第一人称 → 可见（Mesh1P 的 bOnlyOwnerSee 已限制仅持有者可见）
@@ -196,51 +185,40 @@ void UTP_WeaponComponent::Equip()
 	SetVisibility(bShouldShow);
 	SetHiddenInGame(!bShouldShow, true);
 
-	CurrentFOV = DefaultFOV;
-	TargetFOV = DefaultFOV;
+	// 输入/弹药/后坐力/视角等配置全部来自 WeaponData，这里缓存到局部变量（组件不再持有这些数据）
+	UInputMappingContext* EffectiveMappingContext = WeaponData ? WeaponData->WeaponMappingContext : nullptr;
+	UInputAction* EffectiveFireAction = WeaponData ? WeaponData->WeaponFireAction : nullptr;
+	UInputAction* EffectiveReloadAction = WeaponData ? WeaponData->WeaponReloadAction : nullptr;
+	UInputAction* EffectiveSwitchAction = WeaponData ? WeaponData->WeaponSwitchAction : nullptr;
+	UInputAction* EffectiveAimAction = WeaponData ? WeaponData->WeaponAimAction : nullptr;
+
+	CurrentFOV = WeaponData ? WeaponData->DefaultFOV : 90.0f;
+	TargetFOV = CurrentFOV;
 	ADSBlendAlpha = 0.0f;
 	CurrentAmmo = ReplicatedCurrentAmmo;
 	SpareAmmo = ReplicatedSpareAmmo;
 	OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
-		if (WeaponData)
-		{
-			CurrentFireMode = WeaponData->FireMode;
-			CurrentSpread = WeaponData->BaseSpread;
-		}
-
-		// 从 WeaponData 补充输入配置（如果组件自身未设置）
-	UInputMappingContext* EffectiveMappingContext = FireMappingContext;
-	TArray<UInputAction*> EffectiveActions;
 	if (WeaponData)
 	{
-		if (!EffectiveMappingContext)
-			EffectiveMappingContext = WeaponData->WeaponMappingContext;
-		if (!FireAction) FireAction = WeaponData->WeaponFireAction;
-		if (!ReloadAction) ReloadAction = WeaponData->WeaponReloadAction;
-		if (!SwitchAction) SwitchAction = WeaponData->WeaponSwitchAction;
-		if (!AimAction) AimAction = WeaponData->WeaponAimAction;
+		CurrentFireMode = WeaponData->FireMode;
+		CurrentSpread = WeaponData->BaseSpread;
 	}
-
-	// 记住本次实际使用的映射上下文，供 UnEquip 精确移除。
-	// 否则 FireMappingContext 为空时（服务端/主机 OnRep_WeaponData 不触发、不会给它赋值），
-	// Equip 加了 WeaponData 的映射上下文，UnEquip 却移除不了，导致武器映射上下文泄漏、武器输入残留。
-	FireMappingContext = EffectiveMappingContext;
 
 	if (!Character || !Character->GetController())
 	{
-		
+
 		return;
 	}
 	if (!Character->IsLocallyControlled())
 	{
-		
+
 		return;
 	}
 
 	APlayerController* PC = Cast<APlayerController>(Character->GetController());
 	if (!PC) return;
 
-	
+
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
 		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
@@ -249,36 +227,27 @@ void UTP_WeaponComponent::Equip()
 		{
 			Subsystem->AddMappingContext(EffectiveMappingContext, 1);
 		}
-		else
-		{
-			
-		}
 	}
 
 	if (UEnhancedInputComponent* Input = Cast<UEnhancedInputComponent>(PC->InputComponent))
 	{
 		Input->ClearBindingsForObject(this);
-		if (FireAction)
+		if (EffectiveFireAction)
 		{
-			Input->BindAction(FireAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::StartFire);
-			Input->BindAction(FireAction, ETriggerEvent::Completed, this, &UTP_WeaponComponent::StopFire);
-			
+			Input->BindAction(EffectiveFireAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::StartFire);
+			Input->BindAction(EffectiveFireAction, ETriggerEvent::Completed, this, &UTP_WeaponComponent::StopFire);
 		}
-		else
+		if (EffectiveReloadAction)
 		{
-			
+			Input->BindAction(EffectiveReloadAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::Reload);
 		}
-		if (ReloadAction)
+		if (EffectiveSwitchAction)
 		{
-			Input->BindAction(ReloadAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::Reload);
+			Input->BindAction(EffectiveSwitchAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::SwitchFireMode);
 		}
-		if (SwitchAction)
+		if (EffectiveAimAction)
 		{
-			Input->BindAction(SwitchAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::SwitchFireMode);
-		}
-		if (AimAction)
-		{
-			Input->BindAction(AimAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::ToggleAiming);
+			Input->BindAction(EffectiveAimAction, ETriggerEvent::Started, this, &UTP_WeaponComponent::ToggleAiming);
 		}
 	}
 }
@@ -292,7 +261,7 @@ void UTP_WeaponComponent::UnEquip()
 	bIsOnFireCooldown = false;
 	bIsReloading = false;
 	bIsAiming = false;
-	TargetFOV = DefaultFOV;
+	TargetFOV = WeaponData ? WeaponData->DefaultFOV : 90.0f;
 	ADSBlendAlpha = 0.0f;
 
 	if (GetWorld())
@@ -316,9 +285,9 @@ void UTP_WeaponComponent::UnEquip()
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
 		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
 	{
-		if (FireMappingContext)
+		if (WeaponData && WeaponData->WeaponMappingContext)
 		{
-			Subsystem->RemoveMappingContext(FireMappingContext);
+			Subsystem->RemoveMappingContext(WeaponData->WeaponMappingContext);
 		}
 	}
 }
@@ -333,7 +302,7 @@ void UTP_WeaponComponent::Reload()
 	bIsReloading = true;
 
 	// 在武器自身骨骼网格上播放换弹动画序列
-	PlayWeaponAnimation(ReloadAnimation, false);
+	PlayWeaponAnimation(WeaponData->ReloadAnimation, false);
 
 	if (Character->HasAuthority())
 	{
@@ -343,9 +312,6 @@ void UTP_WeaponComponent::Reload()
 	}
 	else
 	{
-		// 乐观预测：立即本地加弹并刷新 HUD。
-		// 必须在 Reload 里预测、且靠 OnRep 的 =（覆盖）来对账；绝不能在 FinishReload 里再 +=，
-		// 否则会和 OnRep 已覆盖的值叠加成双倍。
 		int32 Needed = WeaponData->MaxProjectile - CurrentAmmo;
 		PendingReloadAmount = FMath::Min(Needed, SpareAmmo);
 		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
@@ -390,7 +356,7 @@ void UTP_WeaponComponent::StartSingleFire()
 {
 	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this)
 	{
-		
+
 		return;
 	}
 
@@ -398,21 +364,21 @@ void UTP_WeaponComponent::StartSingleFire()
 
 	if (Character->IsDead())
 	{
-		
+
 		return;
 	}
 
 	if (!bCanFire())
 	{
-		
+
 		return;
 	}
 
-	
+
 
 	if (!WeaponData || !WeaponData->ProjectileClass)
 	{
-		
+
 		return;
 	}
 
@@ -423,33 +389,28 @@ void UTP_WeaponComponent::StartSingleFire()
 		FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
 		SpawnRotation.Pitch += FMath::FRandRange(-CurrentSpread, CurrentSpread);
 		SpawnRotation.Yaw += FMath::FRandRange(-CurrentSpread, CurrentSpread);
-		FVector SpawnLocation;
-		if (DoesSocketExist(MuzzleSocketName))
-		{
-			// 从枪口插槽的真实世界位置射出，子弹/火焰与第一人称枪口对齐
-			SpawnLocation = GetSocketLocation(MuzzleSocketName);
-		}
-		else
-		{
-			// 兜底：枪没有 muzzle 插槽时退回相机 + 偏移
-			SpawnLocation = Character->GetFirstPersonCameraComponent()->GetComponentLocation() + SpawnRotation.RotateVector(MuzzleOffset);
-		}
+		// 子弹从相机（准心）射出，命中准心瞄准的位置，不受枪口偏移影响
+		FVector SpawnLocation = Character->GetFirstPersonCameraComponent()->GetComponentLocation();
+		// 枪口火焰/枪声位置：有 muzzle 插槽用真实枪口，否则退回子弹起点
+		FVector MuzzleFlashLocation = DoesSocketExist(WeaponData->MuzzleSocketName)
+			? GetSocketLocation(WeaponData->MuzzleSocketName)
+			: SpawnLocation;
 
 		if (Character->HasAuthority()) {
 			ReplicatedCurrentAmmo -= 1;
 			if (Character->WeaponInventoryComponent) Character->WeaponInventoryComponent->RefreshSlotAmmo(this);
 			PerformFire(SpawnLocation, SpawnRotation);
 			Character->MulticastThirdPersonFire(Character->ThirdPersonFireMontage);
-			Character->MulticastMuzzleFlash(SpawnLocation, SpawnRotation, MuzzleFlashEffect, FireSound);
+			Character->MulticastMuzzleFlash(MuzzleFlashLocation, SpawnRotation, WeaponData->MuzzleFlashEffect, WeaponData->FireSound);
 		}
 		else {
 			Character->WeaponInventoryComponent->ServerFireWeapon(Character->WeaponInventoryComponent->WeaponIndex, SpawnLocation, SpawnRotation);
 		}
 		CurrentAmmo -= 1;
 		OnAmmoChanged.Broadcast(CurrentAmmo, SpareAmmo);
-		if (MuzzleFlashEffect != nullptr)
+		if (WeaponData->MuzzleFlashEffect != nullptr)
 		{
-			UGameplayStatics::SpawnEmitterAtLocation(World, MuzzleFlashEffect, SpawnLocation, SpawnRotation);
+			UGameplayStatics::SpawnEmitterAtLocation(World, WeaponData->MuzzleFlashEffect, MuzzleFlashLocation, SpawnRotation);
 		}
 		float Vertical = FMath::FRandRange(WeaponData->MinVertical, WeaponData->MaxVertical);
 		float Horizon = FMath::FRandRange(WeaponData->MinHorizon, WeaponData->MaxHorizon);
@@ -479,15 +440,15 @@ void UTP_WeaponComponent::StartSingleFire()
 		}
 	}
 
-	if (FireSound != nullptr)
+	if (WeaponData->FireSound != nullptr)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+		UGameplayStatics::PlaySoundAtLocation(this, WeaponData->FireSound, Character->GetActorLocation());
 	}
 
-	if (FireAnimation != nullptr)
+	if (WeaponData->FireAnimation != nullptr)
 	{
 		// 在武器自身骨骼网格上播放开火动画序列
-		PlayWeaponAnimation(FireAnimation, false);
+		PlayWeaponAnimation(WeaponData->FireAnimation, false);
 	}
 
 	if (CurrentFireMode == EFireModeEnum::SemiAuto) {
@@ -525,37 +486,38 @@ void UTP_WeaponComponent::ServerFire_Implementation(FVector SpawnLocation, FRota
 {
 	if (!WeaponData)
 	{
-		
+
 		return;
 	}
 	if (ReplicatedCurrentAmmo <= 0)
 	{
-		
+
 		return;
 	}
 	if (!Character)
 	{
-		
+
 		return;
 	}
 	ReplicatedCurrentAmmo -= 1;
 	if (Character && Character->WeaponInventoryComponent) Character->WeaponInventoryComponent->RefreshSlotAmmo(this);
 	PerformFire(SpawnLocation, SpawnRotation);
 	Character->MulticastThirdPersonFire(Character->ThirdPersonFireMontage);
-	Character->MulticastMuzzleFlash(SpawnLocation, SpawnRotation, MuzzleFlashEffect, FireSound);
+	Character->MulticastMuzzleFlash(SpawnLocation, SpawnRotation, WeaponData->MuzzleFlashEffect, WeaponData->FireSound);
 }
 
 void UTP_WeaponComponent::MulticastFireEffect_Implementation(FVector SpawnLocation, FRotator SpawnRotation)
 {
 	if (Character && Character->IsLocallyControlled()) return;
-	if (MuzzleFlashEffect != nullptr && GetWorld()) {
-		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), MuzzleFlashEffect, SpawnLocation, SpawnRotation);
+	if (!WeaponData) return;
+	if (WeaponData->MuzzleFlashEffect != nullptr && GetWorld()) {
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), WeaponData->MuzzleFlashEffect, SpawnLocation, SpawnRotation);
 	}
-	if (FireSound != nullptr && Character) {
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	if (WeaponData->FireSound != nullptr && Character) {
+		UGameplayStatics::PlaySoundAtLocation(this, WeaponData->FireSound, Character->GetActorLocation());
 	}
-	if (FireAnimation != nullptr) {
-		PlayWeaponAnimation(FireAnimation, false);
+	if (WeaponData->FireAnimation != nullptr) {
+		PlayWeaponAnimation(WeaponData->FireAnimation, false);
 	}
 }
 
@@ -563,17 +525,17 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 {
 	if (!WeaponData)
 	{
-		
+
 		return;
 	}
 	if (!WeaponData->ProjectileClass)
 	{
-		
+
 		return;
 	}
 	if (!Character)
 	{
-		
+
 		return;
 	}
 	UWorld* const World = GetWorld();
@@ -589,7 +551,7 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 	}
 	else
 	{
-		
+
 	}
 	UAISense_Hearing::ReportNoiseEvent(
 		GetWorld(),
@@ -603,17 +565,17 @@ void UTP_WeaponComponent::PerformFire(FVector SpawnLocation, FRotator SpawnRotat
 
 void UTP_WeaponComponent::StartFire()
 {
-	
+
 	if (!Character || Character->WeaponInventoryComponent->CurrentWeapon != this)
 	{
-		
+
 		return;
 	}
 	if (!Character->GetController()) return;
 	if (bIsReloading) return;
 	if (CurrentAmmo <= 0)
 	{
-		
+
 		return;
 	}
 
@@ -668,7 +630,7 @@ void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 		APlayerCameraManager* Camera = PC->PlayerCameraManager;
 		if (Camera)
 		{
-			CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaTime, AimInterpSpeed);
+			CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaTime, WeaponData->AimInterpSpeed);
 			Camera->SetFOV(CurrentFOV);
 		}
 	}
@@ -694,7 +656,7 @@ void UTP_WeaponComponent::ApplyAndDecayRecoil(float DeltaTime)
 void UTP_WeaponComponent::ApplyAndDecaySpread(float DeltaTime)
 {
 	float EffectiveBase = WeaponData->BaseSpread;
-	if (bIsAiming) EffectiveBase *= ADSConcentration;
+	if (bIsAiming) EffectiveBase *= WeaponData->ADSConcentration;
 
 	if (!bIsTriggerHeld)
 	{
@@ -722,14 +684,32 @@ void UTP_WeaponComponent::DecayMuzzleShake(float DeltaTime)
 	SetRelativeLocation(MuzzleOriginalLocation + MuzzleShakeOffset);
 }
 
+FVector UTP_WeaponComponent::ComputeLocalUp(const FVector& AimAxis) const
+{
+	// 默认 +Z；用握把/扳机骨骼（在枪管下方）定位"下"，反推"上"
+	FVector LocalUp = FVector::UpVector;
+	const FName CandidateBones[] = { FName(TEXT("Grip_Bone")), FName(TEXT("Trigger_Bone")) };
+	const FName MuzzleName = WeaponData ? WeaponData->MuzzleSocketName : FName(TEXT("muzzle"));
+	const FVector LocalMuzzle = GetSocketTransform(MuzzleName, RTS_Component).GetLocation();
+	for (const FName& Bone : CandidateBones)
+	{
+		if (GetBoneIndex(Bone) == INDEX_NONE) continue;
+		FVector DownDir = GetBoneLocation(Bone, EBoneSpaces::ComponentSpace) - LocalMuzzle;
+		DownDir = (DownDir - AimAxis * (DownDir | AimAxis)).GetSafeNormal();
+		if (!DownDir.IsNearlyZero()) { LocalUp = -DownDir; break; }
+	}
+	return LocalUp;
+}
+
 FTransform UTP_WeaponComponent::ComputeADSRelativeTransform() const
 {
 	// 不满足条件时返回当前相对变换，避免跳变
-	if (!Character || !Character->FirstPersonCameraComponent)
+	if (!Character || !WeaponData || !Character->FirstPersonCameraComponent)
 	{
 		return GetRelativeTransform();
 	}
-	if (!DoesSocketExist(SightAlignSocketName) || !DoesSocketExist(MuzzleSocketName))
+	// 检查 SightAlignSocketName 而不是 MuzzleSocketName
+	if (!DoesSocketExist(WeaponData->AimCenterSocketName) || !DoesSocketExist(WeaponData->SightAlignSocketName))
 	{
 		return GetRelativeTransform();
 	}
@@ -739,17 +719,18 @@ FTransform UTP_WeaponComponent::ComputeADSRelativeTransform() const
 	const FVector CamFwd = Cam->GetForwardVector();
 	const FVector CamUp = Cam->GetUpVector();
 
-	// 枪刚体上的两个固定点（本地空间）
-	const FVector LocalSight  = GetSocketTransform(SightAlignSocketName, RTS_Component).GetLocation();
-	const FVector LocalMuzzle = GetSocketTransform(MuzzleSocketName, RTS_Component).GetLocation();
-	const FVector LocalSightDir = (LocalMuzzle - LocalSight).GetSafeNormal(); // 瞄准轴(朝前)
+	// 枪刚体上的两个固定点（本地空间）：AimCenter 对准准心，sightalign 用来确定枪管方向
+	const FVector LocalSight = GetSocketTransform(WeaponData->AimCenterSocketName, RTS_Component).GetLocation();
+	const FVector LocalAlign = GetSocketTransform(WeaponData->SightAlignSocketName, RTS_Component).GetLocation();
+	// 注意：sightalign 在 aimcenter 后方，所以向前方向为 LocalSight - LocalAlign
+	const FVector LocalSightDir = (LocalSight - LocalAlign).GetSafeNormal(); // 瞄准轴(朝前)
 	if (LocalSightDir.IsNearlyZero())
 	{
 		return GetRelativeTransform(); // 两插槽重叠，无法确定瞄准轴
 	}
 
 	// 用「先对齐瞄准轴、再对齐上方向」两步求旋转，规避单步 FindBetweenNormals 的轴向跳变(乱转)
-	FVector LocalUp = FVector::UpVector; // 枪网格的“上”默认 +Z
+	FVector LocalUp = ComputeLocalUp(LocalSightDir); // 注意：ComputeLocalUp 内部仍使用 MuzzleSocketName 作为参考，但只影响滚转角，通常没问题
 	LocalUp = (LocalUp - LocalSightDir * (LocalUp | LocalSightDir)).GetSafeNormal();
 	if (LocalUp.IsNearlyZero())
 	{
@@ -762,7 +743,7 @@ FTransform UTP_WeaponComponent::ComputeADSRelativeTransform() const
 	const FQuat RotQ = Q2 * Q1;
 
 	// 照门目标世界位置：相机正前方(准心线上)。枪口与照门共线 => 机瞄直线 = 准心线
-	const FVector TargetSightPos = CamLoc + CamFwd * ADSSightDistance + CamUp * ADSSightVerticalOffset;
+	const FVector TargetSightPos = CamLoc + CamFwd * WeaponData->ADSSightDistance + CamUp * WeaponData->ADSSightVerticalOffset;
 	const FVector DesiredWorldLoc = TargetSightPos - RotQ.RotateVector(LocalSight);
 	const FTransform DesiredWorld(RotQ, DesiredWorldLoc);
 
@@ -782,7 +763,7 @@ void UTP_WeaponComponent::UpdateWeaponAim(float DeltaTime)
 	if (Character->bIsThirdPerson) return;
 
 	const float TargetAlpha = bIsAiming ? 1.0f : 0.0f;
-	ADSBlendAlpha = FMath::FInterpTo(ADSBlendAlpha, TargetAlpha, DeltaTime, ADSTransformInterpSpeed);
+	ADSBlendAlpha = FMath::FInterpTo(ADSBlendAlpha, TargetAlpha, DeltaTime, WeaponData->ADSTransformInterpSpeed);
 	// 接近端点时直接落地到 0/1，保证稳态时写出的变换逐位一致，不残留每帧极小量插值
 	if (FMath::Abs(ADSBlendAlpha - TargetAlpha) < 0.001f)
 	{
@@ -802,15 +783,20 @@ void UTP_WeaponComponent::UpdateWeaponAim(float DeltaTime)
 		return;
 	}
 
-	// 插槽缺失或尚未计算缓存时，保持腰射（仅缩放 FOV）
+	// 插槽缺失时保持腰射（仅缩放 FOV）
 	if (!bHasValidADSTransform)
 	{
 		SetRelativeTransform(HipRel);
 		return;
 	}
 
+	// 每帧重算机瞄目标，而不是用 StartAiming 缓存的那一份：
+	// 手臂(Mesh1P 的 AnimBP)一直在动，GripPoint 相对相机的位置每帧都变，
+	// 缓存会把「按下右键瞬间的手臂姿势」烙死，导致每次开镜枪位置不同、开镜中还跟着手臂漂。
+	// 两段式旋转(先对齐瞄准轴、再对齐上方向)已保证稳定，不会乱转。
+	FTransform AdsRel = ComputeADSRelativeTransform();
 	FTransform Blended;
-	Blended.Blend(HipRel, CachedADSRelativeTransform, ADSBlendAlpha);
+	Blended.Blend(HipRel, AdsRel, ADSBlendAlpha);
 	SetRelativeTransform(Blended);
 }
 
@@ -851,17 +837,9 @@ bool UTP_WeaponComponent::AttachWeapon(As1mpleFpsCharacter* TargetCharacter)
 		ReplicatedSpareAmmo = WeaponData->TotalProjectiles;
 		CurrentFireMode = WeaponData->FireMode;
 		CurrentSpread = WeaponData->BaseSpread;
-		// 从 WeaponData 补充网格和音效
+		// 从 WeaponData 补充网格（音效/动画/输入配置现在直接从 WeaponData 读）
 		if (!GetSkeletalMeshAsset() && WeaponData->WeaponMesh)
 			SetSkeletalMeshAsset(WeaponData->WeaponMesh);
-		if (!FireSound && WeaponData->FireSound)
-			FireSound = WeaponData->FireSound;
-		if (!MuzzleFlashEffect && WeaponData->MuzzleFlashEffect)
-			MuzzleFlashEffect = WeaponData->MuzzleFlashEffect;
-		if (!FireAnimation && WeaponData->FireAnimation)
-			FireAnimation = WeaponData->FireAnimation;
-		if (!ReloadAnimation && WeaponData->ReloadAnimation)
-			ReloadAnimation = WeaponData->ReloadAnimation;
 	}
 
 	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
@@ -889,7 +867,8 @@ void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		{
 			if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 			{
-				Subsystem->RemoveMappingContext(FireMappingContext);
+				if (WeaponData && WeaponData->WeaponMappingContext)
+					Subsystem->RemoveMappingContext(WeaponData->WeaponMappingContext);
 			}
 		}
 	}

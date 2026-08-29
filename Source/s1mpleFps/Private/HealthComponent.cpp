@@ -10,6 +10,7 @@
 #include "s1mpleFpsGameState.h"
 #include "s1mpleFpsGameMode.h"
 #include "s1mpleFpsPvPGameMode.h"
+#include "s1mpleFpsPlayerState.h"
 #include "s1mpleFpsPlayerController.h"
 #include "HUDWidget.h"
 #include "Blueprint/UserWidget.h"
@@ -246,15 +247,42 @@ void UHealthComponent::Respawn()
 		MoveComp->SetMovementMode(MOVE_Walking);
 	}
 
-	// 随机重生点（仅服务端设置位置）
+	// 随机重生点（仅服务端设置位置），按玩家队伍过滤 PlayerStartTag（和 FindPlayerStart_Implementation 同一套 Blue/Red 标签）
 	if (GetWorld() && GetWorld()->GetNetMode() != NM_Client)
 	{
+		ETeam Team = ETeam::None;
+		if (As1mpleFpsPlayerState* PS = Character->GetPlayerState<As1mpleFpsPlayerState>())
+		{
+			Team = PS->Team;
+		}
+
 		TArray<AActor*> PlayerStarts;
 		UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), PlayerStarts);
-		if (PlayerStarts.Num() > 0)
+
+		// 先按队伍筛选出生点
+		TArray<AActor*> TeamStarts;
+		if (Team != ETeam::None)
 		{
-			int32 RandomIndex = FMath::RandRange(0, PlayerStarts.Num() - 1);
-			if (AActor* Start = PlayerStarts[RandomIndex])
+			const FName TeamTag = (Team == ETeam::Blue) ? FName(TEXT("Blue")) : FName(TEXT("Red"));
+			for (AActor* Start : PlayerStarts)
+			{
+				if (APlayerStart* StartPS = Cast<APlayerStart>(Start))
+				{
+					if (StartPS->PlayerStartTag == TeamTag)
+					{
+						TeamStarts.Add(Start);
+					}
+				}
+			}
+		}
+
+		// 没匹配到队伍出生点（或队伍未定）→ 回退到全部出生点
+		TArray<AActor*>& Candidates = (TeamStarts.Num() > 0) ? TeamStarts : PlayerStarts;
+
+		if (Candidates.Num() > 0)
+		{
+			int32 RandomIndex = FMath::RandRange(0, Candidates.Num() - 1);
+			if (AActor* Start = Candidates[RandomIndex])
 			{
 				// TeleportTo 会走 CharacterMovement 的传送路径并强制同步位置到客户端，
 				// 否则 2P 会卡在死亡原地、要等数秒才被校正回出生点（SetActorLocation 不标传送）

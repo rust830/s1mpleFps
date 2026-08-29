@@ -15,6 +15,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSuddenDeath);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOvertimeChanged, float, OvertimeRemaining);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWarmUpTimeChanged, float, WarmUpTimeRemaining);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnTeamScoreChanged, int32, BlueScore, int32, RedScore, int32, BlueKills, int32, RedKills);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnControlPointScored, ETeam, Team, int32, Score);
 
 // 击杀条颜色规则（类似 LOL 两种显示）
 UENUM(BlueprintType)
@@ -117,6 +118,10 @@ public:
 	UPROPERTY(BlueprintAssignable)
 	FOnTeamScoreChanged OnTeamScoreChanged;
 
+	// 占点得分成功委托：任一客户端/服务器都能绑定，拿到得分队伍 + 本次得分
+	UPROPERTY(BlueprintAssignable)
+	FOnControlPointScored OnControlPointScored;
+
 	UPROPERTY(BlueprintAssignable)
 	FOnMessageReceived OnMessageReceived;
 	
@@ -125,6 +130,10 @@ public:
 
 	UFUNCTION(NetMulticast,Reliable)
 	void MulticastReceivedChatMessage(const FString& Sender, const FString& Message, bool bIsTeam);
+
+	// 占点得分成功广播（服务器 + 所有客户端）：得分队伍 + 本次得分
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastControlPointScored(ETeam Team, int32 Score);
 
 	FTimerHandle CountdownHandle;
 	UFUNCTION(BlueprintCallable)

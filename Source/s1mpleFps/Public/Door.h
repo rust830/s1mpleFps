@@ -37,6 +37,9 @@ public:
 	//Character interface
 	void Door_Interact(APlayerController* Player);
 
+	// 服务器端开门逻辑（校验重叠 + 翻转），供 ServerOpenDoor RPC 和 PlayerController::ServerInteractDoor 复用
+	void RequestOpen(APlayerController* Player);
+
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door")
 	EOpenType Type = EOpenType::Rotate;

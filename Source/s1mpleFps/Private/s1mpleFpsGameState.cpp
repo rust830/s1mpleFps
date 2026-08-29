@@ -16,6 +16,11 @@ void As1mpleFpsGameState::MulticastReceivedChatMessage_Implementation(const FStr
 	OnMessageReceived.Broadcast(Sender, Message, bIsTeam);
 }
 
+void As1mpleFpsGameState::MulticastControlPointScored_Implementation(ETeam Team, int32 Score)
+{
+	OnControlPointScored.Broadcast(Team, Score);
+}
+
 void As1mpleFpsGameState::StartCountdown()
 {
 	if (HasAuthority()) {

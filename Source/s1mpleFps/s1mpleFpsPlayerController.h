@@ -20,6 +20,7 @@ class UHUDWidget;
 class UMinimapWidget;
 class UBuyEquipmentData;
 class As1mpleFpsCharacter;
+class ADoor;
 
 
 UCLASS()
@@ -125,6 +126,11 @@ public:
 		TObjectPtr<UUserWidget> LobbyWidget;
 	UFUNCTION(BlueprintCallable)
 		void TogglePause();
+
+	// 门交互：门不归客户端拥有，客户端直接在门上发 Server RPC 会被丢弃（No owning connection）；
+	// 改在 PC 上发（客户端拥有自己的 PC）。服务器实现里再调用 Door->RequestOpen 完成开门。
+	UFUNCTION(Server, Reliable)
+		void ServerInteractDoor(ADoor* Door);
 
 	//lobby RPC
 	UFUNCTION(Server, Reliable, BlueprintCallable)

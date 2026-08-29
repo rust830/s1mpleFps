@@ -83,10 +83,12 @@ void ADoor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimePro
 }
 
 void ADoor::Door_Interact(APlayerController* Player)
-{	
+{
 	As1mpleFpsPlayerController* PC = Cast<As1mpleFpsPlayerController>(Player);
 	if (!PC)return;
-	ServerOpenDoor(PC);
+	// 客户端不能在门(非拥有 actor)上直接发 Server RPC，会被 UNetDriver 丢弃（No owning connection）。
+	// 改走 PlayerController 的 Server RPC：客户端拥有自己的 PC，能正常发送到服务器。
+	PC->ServerInteractDoor(this);
 }
 
 void ADoor::OnRep_DoorState()
@@ -112,22 +114,31 @@ void ADoor::OnTriggerBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherAct
 
 void ADoor::OnTriggerEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	if (InteractController && InteractController == OtherActor->GetInstigatorController())
-	{	
-		if (InteractController->IsLocalController()) {
-			InteractController->ClientUpdatePrompt(false,TEXT(" "));
+	if (!InteractController) return;
+
+	// OtherActor 是离开触发区的 Pawn，用它的实际 Controller 判断是否该清掉提示。
+	// 之前用 GetInstigatorController() 对普通走动的玩家永远返回 null（instigator 只在造成伤害时才设置），
+	// 导致 InteractController 永远清不掉、提示「E To Interact」卡在屏幕上。
+	if (APawn* Pawn = Cast<APawn>(OtherActor))
+	{
+		if (InteractController == Pawn->GetController())
+		{
+			if (InteractController->IsLocalController()) {
+				InteractController->ClientUpdatePrompt(false, TEXT(" "));
+			}
+			InteractController = nullptr;
 		}
-		InteractController= nullptr;
 	}
 }
 
-void ADoor::ServerOpenDoor_Implementation(As1mpleFpsPlayerController* PC)
+void ADoor::RequestOpen(APlayerController* Player)
 {
-	
-	if (!PC || bIsMoving) return;
 
-	APawn* CallingPawn = PC->GetPawn();
-	if (!CallingPawn) return;
+	if (!Player) { return; }
+	if (bIsMoving) { return; }
+
+	APawn* CallingPawn = Player->GetPawn();
+	if (!CallingPawn) { return; }
 
 	// 直接检测玩家是否与Box重叠（基于盒体范围）
 	if (!Box->IsOverlappingActor(CallingPawn))
@@ -141,7 +152,7 @@ void ADoor::ServerOpenDoor_Implementation(As1mpleFpsPlayerController* PC)
 	{
 		// ---------- 需求1：根据玩家位置决定往里/往外开 ----------
 		// 注意：此计算仅在服务器进行，算出的 TargetRotation 复制给所有客户端
-		FVector PlayerLoc = PC->GetPawn()->GetActorLocation();
+		FVector PlayerLoc = Player->GetPawn()->GetActorLocation();
 		FVector DoorLoc = GetActorLocation();
 		FVector DirToPlayer = (PlayerLoc - DoorLoc).GetSafeNormal2D(); // 水平方向
 
@@ -165,5 +176,10 @@ void ADoor::ServerOpenDoor_Implementation(As1mpleFpsPlayerController* PC)
 	}
 
 	OnRep_DoorState();
+}
+
+void ADoor::ServerOpenDoor_Implementation(As1mpleFpsPlayerController* PC)
+{
+	RequestOpen(PC);
 }
 

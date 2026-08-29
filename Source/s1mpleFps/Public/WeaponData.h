@@ -134,4 +134,38 @@ public:
 	UInputAction* WeaponSwitchAction;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "WeaponData|Input")
 	UInputAction* WeaponAimAction;
+
+	// --- 视角 / 机瞄(ADS) FOV 参数 ---
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float DefaultFOV = 90.0f;                 // 腰射 FOV
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float ADSFOV = 55.0f;                     // 开镜 FOV
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float AimInterpSpeed = 10.0f;             // FOV 插值速度
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float ADSConcentration = 0.3f;            // 开镜时扩散系数（乘以 BaseSpread）
+
+	// --- 第三人称 ADS 弹簧臂参数（暂用） ---
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float ADSSpringArmLength = 60.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	FVector ADSSocketOffset = FVector(45.0f, 25.0f, 75.0f);
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	FVector ADSTargetOffset = FVector(-20.0f, 0.0f, 70.0f);
+
+	// --- 机瞄对齐插槽名 ---
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming|Sockets")
+	FName AimCenterSocketName = "AimCenter";
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming|Sockets")
+	FName MuzzleSocketName = "muzzle";
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming|Sockets")
+	FName SightAlignSocketName = FName(TEXT("sightalign"));
+
+	// --- 机瞄几何对齐参数 ---
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float ADSSightDistance = 150.0f;          // 瞄准时照门距相机前向的距离(cm)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float ADSSightVerticalOffset = 0.0f;      // 瞄准时照门相对眼睛的垂直偏移(cm)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aiming")
+	float ADSTransformInterpSpeed = 15.0f;    // 武器变换进入/退出 ADS 的插值速度
 };

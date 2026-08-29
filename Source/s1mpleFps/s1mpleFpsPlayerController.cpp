@@ -6,6 +6,7 @@
 #include "HUDWidget.h"
 #include "MinimapWidget.h"
 #include "s1mpleFpsCharacter.h"
+#include "Door.h"
 #include "HealthComponent.h"
 #include "WeaponInventoryComponent.h"
 #include "GrenadeComponent.h"
@@ -441,37 +442,55 @@ void As1mpleFpsPlayerController::OnPawnHealingStateChanged()
 	}
 }
 
+void As1mpleFpsPlayerController::ServerInteractDoor_Implementation(ADoor* Door)
+{
+	if (Door)
+	{
+		// 服务器端调用门的权威开门逻辑（校验重叠 + 翻转）
+		Door->RequestOpen(this);
+	}
+}
+
 void As1mpleFpsPlayerController::TogglePause()
 {
 	if (!PauseMenuClass) {
-		
+
 		return;
 	}
-	if (IsPaused()) {
-		if (PauseMenuWidget) {
-			PauseMenuWidget->RemoveFromParent();
-			PauseMenuWidget = nullptr;
-		}
+
+	// 用「菜单是否已创建」做本地开关，而不是 IsPaused()。
+	// IsPaused()/SetPause() 是服务器权威的世界暂停，且 APlayerController::SetPause 在 NM_Client
+	// 直接 return（2P 永远走不到暂停）。联网下暂停世界还会把整局的人都冻住（1P 暂停 → 全场停），
+	// 所以改成：只有单机(NM_Standalone)才真正暂停世界；联网下菜单纯本地，只锁自己输入。
+	const bool bSinglePlayer = (GetWorld() && GetWorld()->GetNetMode() == NM_Standalone);
+
+	if (PauseMenuWidget) {
+		PauseMenuWidget->RemoveFromParent();
+		PauseMenuWidget = nullptr;
+
 		FInputModeGameOnly InputGame;
 		SetInputMode(InputGame);
 		bShowMouseCursor = false;
 
-		SetPause(false);
+		if (bSinglePlayer) {
+			SetPause(false);
+		}
 	}
 	else {
-		SetPause(true);
-		FInputModeGameAndUI InputMode;
+		if (bSinglePlayer) {
+			SetPause(true);
+		}
+
+		// UIOnly：联网下挡住角色移动/视角（世界仍在跑），菜单照样能点；单机下世界已暂停，同样适用
+		FInputModeUIOnly InputMode;
 		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 		SetInputMode(InputMode);
 		bShowMouseCursor = true;
+
 		PauseMenuWidget = CreateWidget<UUserWidget>(this, PauseMenuClass);
 		if (PauseMenuWidget) {
 			PauseMenuWidget->AddToViewport();
 		}
-		else {
-			
-		}
-
 	}
 
 }

@@ -252,11 +252,14 @@ void As1mpleFpsPvPGameMode::OnControlPointCaptured(AControlArea* Area, ETeam Tea
 		return;
 	}
 
+	// 得分已在 AControlArea::AwardCapture 里加过（每点 AwardScore × 时间系数，并广播 + 判胜）。
+	// 这里只负责关点 + 轮换，不能再 AddTeamScore，否则一个点会被计两次分。
 	ActiveControlArea = nullptr;
 	Area->SetActive(false);
 
-	// 比赛已结束则不再排下一轮
 	As1mpleFpsGameState* GS = GetGameState<As1mpleFpsGameState>();
+
+	// 比赛已结束则不再排下一轮
 	if (GS && GS->bMatchEnded) return;
 
 	// 延时激活下一个点（间隔随比赛进度缩短）

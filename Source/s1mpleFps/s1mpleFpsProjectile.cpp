@@ -4,6 +4,7 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "DamageComponent.h"
 #include "s1mpleFpsCharacter.h"
@@ -54,6 +55,11 @@ As1mpleFpsProjectile::As1mpleFpsProjectile()
 void As1mpleFpsProjectile::BeginPlay()
 {
 	Super::BeginPlay();
+	// 忽略开枪者碰撞：子弹从相机（角色头部内部）spawn，必须穿过自己身体才能正常飞
+	if (AActor* MyInstigator = GetInstigator())
+	{
+		CollisionComp->IgnoreActorWhenMoving(MyInstigator, true);
+	}
 	ProjectileMovement->ProjectileGravityScale = BulletGravityScale;
 	if (BulletTrailEffect)
 	{
@@ -82,7 +88,36 @@ void As1mpleFpsProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActo
 	
 	if (UDamageComponent* Dmg = OtherActor->FindComponentByClass<UDamageComponent>())
 	{
-		Dmg->ApplyDamage(Hit.BoneName, Damage, ArmorPenetration, GetInstigator(), Hit.Location);
+		// 子弹是物理球，命中角色时撞到的是「胶囊体」而非骨骼网格，Hit.BoneName 是空的，
+		// 部位伤害倍率（GetMul）因此永远返回默认 1.0。这里补一次对骨骼网格的射线，拿到真实部位名。
+		FName HitBone = Hit.BoneName;
+		if (HitBone.IsNone())
+		{
+			if (ACharacter* HitChar = Cast<ACharacter>(OtherActor))
+			{
+				FVector Dir = GetVelocity().GetSafeNormal();
+				if (Dir.IsNearlyZero()) Dir = -Hit.ImpactNormal;
+
+				const FVector TraceStart = Hit.Location + Dir * 2.f;   // 胶囊表面略向内
+				const FVector TraceEnd = Hit.Location + Dir * 120.f;   // 深入身体，打骨骼网格（加长减少边缘漏扫）
+
+				FCollisionObjectQueryParams ObjParams;
+				ObjParams.AddObjectTypesToQuery(ECC_WorldStatic);
+				ObjParams.AddObjectTypesToQuery(ECC_Pawn);
+
+				FCollisionQueryParams Params;
+				Params.AddIgnoredActor(this);
+				Params.AddIgnoredComponent(HitChar->GetCapsuleComponent()); // 忽略胶囊，直接打骨骼
+
+				FHitResult BoneHit;
+				if (GetWorld()->LineTraceSingleByObjectType(BoneHit, TraceStart, TraceEnd, ObjParams, Params))
+				{
+					HitBone = BoneHit.BoneName;
+				}
+			}
+		}
+
+		Dmg->ApplyDamage(HitBone, Damage, ArmorPenetration, GetInstigator(), Hit.Location);
 		MulticastHitFeedback(Hit.Location, true);   // 命中角色：广播冒血+命中音
 		if (As1mpleFpsCharacter* Player = Cast<As1mpleFpsCharacter>(GetInstigator())) {
 			Player->PlayHitMarker(true);

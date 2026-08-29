@@ -144,9 +144,11 @@ public:
 	void Interact();
 
 	void StartCrouch() {
+		if (bIsClimbing || bClimbRequestPending) return;
 		Crouch();
 	}
 	void EndCrouch() {
+		if (bIsClimbing || bClimbRequestPending) return;
 		UnCrouch();
 	}
 
@@ -285,6 +287,10 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_HeroVisual)
 	UClass* SelectedHeroAnimClass = nullptr;
 
+	// 英雄物理资产（碰撞用）：皮肤网格 PhysicsAsset=None 导致部位倍率失效，这里显式复制
+	UPROPERTY(ReplicatedUsing = OnRep_HeroVisual)
+	UPhysicsAsset* SelectedHeroPhysicsAsset = nullptr;
+
 	// 服务器端：从 PlayerState.SelectedHeroIndex + 控制器 HeroRoster 解析模型，写入上面两个复制字段并本地套用
 	void ApplyHeroVisual();
 
@@ -318,20 +324,23 @@ public:
 	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Climbing")
 	float ClimbCheckDistance = 150.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
-	float ClimbCheckHeight = 200.f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
 	float MinClimbHeight = 50.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
 	float MaxClimbHeight = 250.f;
 	// 顶面法线 Z 分量阈值（0~1）：越高要求顶面越平（越难翻），越低越容易翻上斜面
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
 	float MinTopFaceNormalZ = 0.7f;
+	// 攀爬动画：按高度分两档（低/高），分界线见 ClimbAnimSplitHeight
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
-	UAnimMontage* FPPClimbMontage;
+	UAnimMontage* FPPClimbLowMontage;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
-	UAnimMontage* TPPClimbMontage;
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Climbing")
-	bool bIsClimbing = false;
+	UAnimMontage* FPPClimbHighMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	UAnimMontage* TPPClimbLowMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	UAnimMontage* TPPClimbHighMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
+	float ClimbAnimSplitHeight = 150.f;   // 高度分界线：≤此值用低档动画，>此值用高档动画
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climbing")
 	float ClimbSpeed = 400.f;
 
@@ -346,16 +355,38 @@ public:
 
 	void OnJumpPressed();
 protected:
+	// ========== 本地攀爬状态（不再复制，所有端靠多播 RPC 同步开始/结束） ==========
+	UPROPERTY(BlueprintReadOnly, Category = "Climbing")
+	bool bIsClimbing = false;
+	bool bClimbRequestPending = false;     // 已发请求，等待服务器确认（期间锁定输入）
+	bool bClimbIsHigh = false;             // 当前攀爬是否为高档（决定播哪套动画）
 	FVector StartClimbLocation = FVector::ZeroVector;
 	FVector TargetClimbLocation = FVector::ZeroVector;
 	FVector ClimbOverLocation = FVector::ZeroVector;
 	float ClimbElapsedTime = 0.0f;
-	bool CanClimbing(FVector& OutTarget, FVector& OutOverTarget)const;
-	void StartClimbing(const FVector& Target, const FVector& OverTarget);
+	float ClimbDuration = 0.0f;            // 攀爬总时长（跟动画对齐，避免动画被提前停掉）
+	float LastClimbAttemptTime = -1000.0f; // 上次请求时间（服务器端冷却用）
+
+	bool CanClimbing(FVector& OutTarget, FVector& OutOverTarget) const;
 	void StopClimbing(bool bCompleted);
-	void CancelClimbing();
-	UFUNCTION(Server,Reliable)
-	void ServerStartClimbing(FVector TargetLocation);
-	UFUNCTION(Server,Reliable)
-	void ServerCancelClimbing();
+
+	// 当前攀爬应使用的动画（按高度分档）
+	UAnimMontage* GetFPPClimbMontage() const { return bClimbIsHigh ? FPPClimbHighMontage : FPPClimbLowMontage; }
+	UAnimMontage* GetTPPClimbMontage() const { return bClimbIsHigh ? TPPClimbHighMontage : TPPClimbLowMontage; }
+
+	// ========== 网络 RPC（服务器权威） ==========
+	UFUNCTION(Server, Reliable)
+	void ServerStartClimbing();            // 客户端→服务器：请求攀爬（服务器重新检测，不信任客户端）
+
+	UFUNCTION(Server, Reliable)
+	void ServerCancelClimbing();           // 客户端→服务器：请求取消攀爬
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastStartClimbing(FVector Target, FVector OverTarget);  // 服务器→所有端：开始攀爬
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastStopClimbing(bool bCompleted);                      // 服务器→所有端：结束攀爬
+
+	UFUNCTION(Client, Reliable)
+	void ClientClimbDenied();              // 服务器→发起者：攀爬被拒绝
 };

@@ -21,6 +21,8 @@
 #include "GameFramework/PlayerState.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Blueprint/WidgetTree.h"
+#include "ControlArea.h"
+#include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Styling/AppStyle.h"
 #include "Styling/CoreStyle.h"  
@@ -73,6 +75,8 @@ void UHUDWidget::NativeConstruct()
 	if (MatchTimeText) MatchTimeText->SetText(FText::FromString(TEXT("10:00")));
 	if (WeaponNameText) WeaponNameText->SetText(FText::FromString(TEXT("")));
 	if (ArmorNameText) ArmorNameText->SetText(FText::FromString(TEXT("")));
+	// 占点广播初始隐藏
+	if (ControlPointBroadcastText) ControlPointBroadcastText->SetVisibility(ESlateVisibility::Collapsed);
 
 	// 热身倒计时
 	if (WarmUpCountdownText)
@@ -191,6 +195,12 @@ void UHUDWidget::TryBindPlayerState()
 
 		}
 	}
+	if (!bControlPointScoredBound) {
+		if (As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>()) {
+			GS->OnControlPointScored.AddDynamic(this, &UHUDWidget::OnControlPointScoredReceived);
+			bControlPointScoredBound = true;
+		}
+	}
 	if (!bGrenadeBound)
 	{
 		BindToGrenadeComponent();
@@ -231,7 +241,13 @@ void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill
 	if (As1mpleFpsCharacter* Character = Cast<As1mpleFpsCharacter>(PC->GetPawn())) {
 		Character->HealthComponent->HideDeathWidget();
 	}
-	bool bIsWinner = PC && PC->PlayerState && PC->PlayerState->GetPlayerName() == WinnerName;
+	As1mpleFpsPlayerState* PS = Cast<As1mpleFpsPlayerState>(GetOwningPlayerState());
+	if (!PS)return;
+	// 用和 WinnerName 相同的命名来源（GetTeamName → "Blue"/"Red"）比较。
+	// 原用 StaticEnum<ETeam>()->GetValueAsString 会带 "ETeam::" 前缀，永远 != WinnerName，导致永远判负。
+	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
+	const FString TeamName = GS ? GS->GetTeamName(PS->Team) : TEXT("");
+	bool bIsWinner = (TeamName == WinnerName);
 
 	if (MatchEndPanel)
 	{
@@ -246,7 +262,7 @@ void UHUDWidget::OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill
 	if (MatchEndInfoText)
 	{
 		FString Reason = bWinByKill ? TEXT("BLOODSHED DONE") : TEXT("THE FINAL BELL");
-		FString Info = FString::Printf(TEXT("WHO PREVAIL %s（%s）"), *WinnerName, *Reason);
+		FString Info = FString::Printf(TEXT("WHO PREVAIL %s %s"), *WinnerName, *Reason);
 		MatchEndInfoText->SetText(FText::FromString(Info));
 	}
 	PC->bShowMouseCursor = true;
@@ -296,8 +312,8 @@ void UHUDWidget::OnOvertimeReceived(float OvertimeRemaining)
 	int32 Seconds = FMath::FloorToInt32(FMath::Fmod(OvertimeRemaining, 60.0f));
 
 	FText TimeText = (Seconds < 10)
-		? FText::Format(FText::FromString(TEXT("NOW OR NEVER LAST CHANCE TO TURN THE TIDE\n {0}:0{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds))
-		: FText::Format(FText::FromString(TEXT("NOW OR NEVER LAST CHANCE TO TURN THE TIDE\n {0}:{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds));
+		? FText::Format(FText::FromString(TEXT("NOW OR NEVER LAST\n {0}:0{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds))
+		: FText::Format(FText::FromString(TEXT("NOW OR NEVER LAST\n {0}:{1}")), FText::AsNumber(Minutes), FText::AsNumber(Seconds));
 
 	MatchTimeText->SetText(TimeText);
 
@@ -327,10 +343,13 @@ void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
 	// Retry binding if PlayerState/GameState wasn't ready during NativeConstruct
-	if (!bPlayerStateBound || !bGameStateBound || !bKillPlayBound || !bMatchEndBound || !bSuddenDeathBound || !bOvertimeBound || !bWarmUpBound || !bChatMessageBound || !bGrenadeBound || !bHealthBound)
+	if (!bPlayerStateBound || !bGameStateBound || !bKillPlayBound || !bMatchEndBound || !bSuddenDeathBound || !bOvertimeBound || !bWarmUpBound || !bChatMessageBound || !bGrenadeBound || !bHealthBound || !bControlPointScoredBound)
 	{
 		TryBindPlayerState();
 	}
+
+	// 占点进度显示：有点位激活才显示，否则折叠隐藏
+	UpdateControlPointDisplay();
 
 	// Hit marker fade
 	if (HitMarkerDuration > 0.0f)
@@ -380,6 +399,38 @@ void UHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 				HealingText->SetVisibility(ESlateVisibility::Hidden);
 			}
 		}
+	}
+}
+
+AControlArea* UHUDWidget::GetActiveControlArea() const
+{
+	UWorld* World = GetWorld();
+	if (!World) return nullptr;
+
+	for (TActorIterator<AControlArea> It(World); It; ++It)
+	{
+		if (It->bActive) return *It;
+	}
+	return nullptr;
+}
+
+void UHUDWidget::UpdateControlPointDisplay()
+{
+	AControlArea* ActiveArea = GetActiveControlArea();
+
+	// 有点位激活才显示，否则折叠（不占布局）
+	if (ControlPointPanel)
+	{
+		ControlPointPanel->SetVisibility(ActiveArea ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+
+	if (ControlPointProgressBar && ActiveArea)
+	{
+		// 争夺中（有人正在抢）显示占领进度，否则显示得分进度
+		const float Pct = (ActiveArea->ControlAttemptTeam != ETeam::None)
+			? ActiveArea->ControlProgress
+			: ActiveArea->ScoreProgress;
+		ControlPointProgressBar->SetPercent(FMath::Clamp(Pct, 0.f, 1.f));
 	}
 }
 
@@ -455,6 +506,7 @@ void UHUDWidget::NativeDestruct()
 	if (GetWorld())
 	{
 		GetWorld()->GetTimerManager().ClearTimer(WarmUpHideHandle);
+		GetWorld()->GetTimerManager().ClearTimer(ControlPointBroadcastHandle);
 	}
 	Super::NativeDestruct();
 }
@@ -876,6 +928,41 @@ void UHUDWidget::SetInteractionPrompt(bool bShow, const FString& Text)
 	}
 }
 
+FLinearColor UHUDWidget::ResolveTeamColor(ETeam Team) const
+{
+	if (Team == ETeam::Blue) return TeamBlueColor;
+	if (Team == ETeam::Red)  return TeamRedColor;
+	return FLinearColor::White;
+}
+
+void UHUDWidget::OnControlPointScoredReceived(ETeam Team, int32 Score)
+{
+	if (!ControlPointBroadcastText) return;
+
+	FString TeamName;
+	switch (Team)
+	{
+	case ETeam::Blue: TeamName = TEXT("VALOIS"); break;
+	case ETeam::Red:  TeamName = TEXT("PLANTAGENET");  break;
+	default:          TeamName = TEXT("Unknown"); break;
+	}
+
+	// 广播「谁占领了据点 + 得分」，文字颜色按队伍
+	ControlPointBroadcastText->SetText(FText::FromString(FString::Printf(TEXT("%s captured the point  +%d"), *TeamName, Score)));
+	ControlPointBroadcastText->SetColorAndOpacity(FSlateColor(ResolveTeamColor(Team)));
+	ControlPointBroadcastText->SetVisibility(ESlateVisibility::Visible);
+
+	// 短暂显示后自动隐藏
+	GetWorld()->GetTimerManager().ClearTimer(ControlPointBroadcastHandle);
+	GetWorld()->GetTimerManager().SetTimer(ControlPointBroadcastHandle, [this]()
+	{
+		if (ControlPointBroadcastText)
+		{
+			ControlPointBroadcastText->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}, ControlPointBroadcastLifetime, false);
+}
+
 FLinearColor UHUDWidget::ResolveKillFeedColor(ETeam KillerTeam) const
 {
 	if (KillerTeam == ETeam::None) return FLinearColor::White;
@@ -921,46 +1008,101 @@ void UHUDWidget::ToggleScoreboard()
 
 void UHUDWidget::RefreshScoreboard()
 {
-	if (!ScoreboardPlayerList) return;
-	ScoreboardPlayerList->ClearChildren();
-
-	UWorld* World = GetWorld();
-	if (!World) return;
-
-	AGameStateBase* GS = World->GetGameState<AGameStateBase>();
+	As1mpleFpsGameState* GS = GetWorld()->GetGameState<As1mpleFpsGameState>();
 	if (!GS) return;
 
-	// Collect players sorted by score
-	TArray<APlayerState*> Players = GS->PlayerArray;
-	Players.Sort([](const APlayerState& A, const APlayerState& B) {
-		return A.GetScore() > B.GetScore();
-		});
-
-	for (APlayerState* Entry : Players)
+	// 按队分组
+	TArray<As1mpleFpsPlayerState*> BluePlayers;
+	TArray<As1mpleFpsPlayerState*> RedPlayers;
+	for (APlayerState* Entry : GS->PlayerArray)
 	{
 		As1mpleFpsPlayerState* PS = Cast<As1mpleFpsPlayerState>(Entry);
 		if (!PS) continue;
-
-		FString Row = FString::Printf(TEXT("%-16s  K:%d  D:%d  S:%d"),
-			*PS->GetPlayerName(),
-			PS->Kills,
-			PS->Deaths,
-			PS->Scores);
-
-		UTextBlock* RowText = NewObject<UTextBlock>(this);
-		RowText->SetText(FText::FromString(Row));
-		RowText->SetJustification(ETextJustify::Left);
-		RowText->SetColorAndOpacity(FSlateColor(FLinearColor(0.772f, 0.786f, 0.824f))); // #E4E6EB
-
-		
-		FSlateFontInfo Font = CustomFontInfo;
-		Font.Size = 14;
-		Font.OutlineSettings.OutlineSize = 1;
-		Font.OutlineSettings.OutlineColor = FLinearColor::Black;
-		RowText->SetFont(Font);
-
-		RowText->SetShadowOffset(FVector2D(1.0f, 1.0f));
-		RowText->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
-		ScoreboardPlayerList->AddChildToVerticalBox(RowText);
+		if (PS->Team == ETeam::Blue) BluePlayers.Add(PS);
+		else if (PS->Team == ETeam::Red) RedPlayers.Add(PS);
 	}
+
+	// 对内按得分排序（沿用原有「按分排序」的意图，用实际展示的 Scores 字段）
+	auto SortByScore = [](TArray<As1mpleFpsPlayerState*>& Arr) {
+		Arr.Sort([](const As1mpleFpsPlayerState& A, const As1mpleFpsPlayerState& B) {
+			return A.Scores > B.Scores;
+			});
+		};
+	SortByScore(BluePlayers);
+	SortByScore(RedPlayers);
+
+	// 团队统计：击杀/得分走 GameState（权威），死亡按队内玩家求和（GameState 没有团队死亡）
+	const int32 BlueKills = GS->BlueTeamKills;
+	const int32 RedKills  = GS->RedTeamKills;
+	const int32 BlueScore = GS->BlueTeamScore;
+	const int32 RedScore  = GS->RedTeamScore;
+	int32 BlueDeaths = 0, RedDeaths = 0;
+	for (const As1mpleFpsPlayerState* PS : BluePlayers) BlueDeaths += PS->Deaths;
+	for (const As1mpleFpsPlayerState* PS : RedPlayers)  RedDeaths += PS->Deaths;
+
+	// 两队分两侧（左蓝右红）。若蓝图还没加这两列，退回旧的单列表，避免记分板空掉。
+	if (BlueTeamPlayerList && RedTeamPlayerList)
+	{
+		if (BlueTeamHeaderText)
+		{
+			// 队名 + K/D/S 分两行（换行需要开启自动换行）
+			BlueTeamHeaderText->SetAutoWrapText(true);
+			BlueTeamHeaderText->SetText(FText::FromString(FString::Printf(TEXT("%s\nK:%d  D:%d  S:%d"), *BlueTeamName, BlueKills, BlueDeaths, BlueScore)));
+			BlueTeamHeaderText->SetColorAndOpacity(FSlateColor(TeamBlueColor));
+		}
+		if (RedTeamHeaderText)
+		{
+			RedTeamHeaderText->SetAutoWrapText(true);
+			RedTeamHeaderText->SetText(FText::FromString(FString::Printf(TEXT("%s\nK:%d  D:%d  S:%d"), *RedTeamName, RedKills, RedDeaths, RedScore)));
+			RedTeamHeaderText->SetColorAndOpacity(FSlateColor(TeamRedColor));
+		}
+
+		BlueTeamPlayerList->ClearChildren();
+		for (const As1mpleFpsPlayerState* PS : BluePlayers)
+		{
+			AddScoreboardRow(BlueTeamPlayerList,
+				FString::Printf(TEXT("%-16s  K:%d  D:%d  S:%d"), *PS->GetPlayerName(), PS->Kills, PS->Deaths, PS->Scores));
+		}
+
+		RedTeamPlayerList->ClearChildren();
+		for (const As1mpleFpsPlayerState* PS : RedPlayers)
+		{
+			AddScoreboardRow(RedTeamPlayerList,
+				FString::Printf(TEXT("%-16s  K:%d  D:%d  S:%d"), *PS->GetPlayerName(), PS->Kills, PS->Deaths, PS->Scores));
+		}
+	}
+	else if (ScoreboardPlayerList)
+	{
+		// 旧单列表回退：合并两队按得分排序展示
+		ScoreboardPlayerList->ClearChildren();
+		TArray<As1mpleFpsPlayerState*> All = BluePlayers;
+		All.Append(RedPlayers);
+		SortByScore(All);
+		for (const As1mpleFpsPlayerState* PS : All)
+		{
+			AddScoreboardRow(ScoreboardPlayerList,
+				FString::Printf(TEXT("%-16s  K:%d  D:%d  S:%d"), *PS->GetPlayerName(), PS->Kills, PS->Deaths, PS->Scores));
+		}
+	}
+}
+
+void UHUDWidget::AddScoreboardRow(UVerticalBox* List, const FString& Text)
+{
+	if (!List) return;
+
+	UTextBlock* RowText = NewObject<UTextBlock>(this);
+	RowText->SetText(FText::FromString(Text));
+	RowText->SetJustification(ETextJustify::Left);
+	RowText->SetColorAndOpacity(FSlateColor(ScoreboardRowColor));
+
+	// 字体/字号走蓝图可调（ScoreboardFont 为空则用 CustomFont）
+	FSlateFontInfo Font = ScoreboardFont ? ScoreboardFont->GetLegacySlateFontInfo() : CustomFontInfo;
+	Font.Size = ScoreboardFontSize;
+	Font.OutlineSettings.OutlineSize = 1;
+	Font.OutlineSettings.OutlineColor = FLinearColor::Black;
+	RowText->SetFont(Font);
+
+	RowText->SetShadowOffset(FVector2D(1.0f, 1.0f));
+	RowText->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.7f));
+	List->AddChildToVerticalBox(RowText);
 }

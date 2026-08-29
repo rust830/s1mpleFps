@@ -12,6 +12,7 @@
 #include "s1mpleFpsPlayerState.h"
 #include "HUDWidget.generated.h"
 
+class AControlArea;
 class UTP_WeaponComponent;
 class UGrenadeComponent;
 class UGrenadeData;
@@ -155,6 +156,19 @@ public:
 	UPROPERTY(meta = (BindWidget))
 	UVerticalBox* ScoreboardPlayerList;
 
+	// --- 记分板：两队分两侧（左蓝右红）。团队头 + 各队玩家列表，具体摆位在 WBP_HUD 里做 ---
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* BlueTeamHeaderText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* RedTeamHeaderText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UVerticalBox* BlueTeamPlayerList;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UVerticalBox* RedTeamPlayerList;
+
 	UPROPERTY(meta = (BindWidget))
 	UVerticalBox* KillPlayBox;
 
@@ -205,6 +219,45 @@ public:
 	UTextBlock* DoorPromptText;
 	// -------------------
 
+	// --- 占点进度 UI（容器 + 进度条；具体外观在 WBP_HUD 里自己设计） ---
+	// 有点位被激活时才显示，否则折叠隐藏（NativeTick 里自动控制可见性）
+	UPROPERTY(meta = (BindWidgetOptional))
+	UCanvasPanel* ControlPointPanel;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UProgressBar* ControlPointProgressBar;
+	// -------------------
+
+	// --- 占点广播文本：谁占领了据点（短暂显示后自动隐藏，颜色按队伍） ---
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* ControlPointBroadcastText;
+
+	// 广播显示时长（秒）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ControlPoint")
+	float ControlPointBroadcastLifetime = 3.0f;
+
+	// 队伍颜色：团队分 / 占点广播等按队伍着色用（蓝图可调，改这里即可改样式）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Team")
+	FLinearColor TeamBlueColor = FLinearColor(0.25f, 0.6f, 1.0f, 1.0f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Team")
+	FLinearColor TeamRedColor = FLinearColor(1.0f, 0.25f, 0.25f, 1.0f);
+
+	// 记分板队名（显示在团队头第一行）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Team")
+	FString BlueTeamName = TEXT("VALOIS");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Team")
+	FString RedTeamName = TEXT("PLANTAGENET");
+
+	// 记分板玩家行样式（行文本在 C++ 里动态生成，所以暴露这些给蓝图改字体/字号/颜色）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scoreboard")
+	UFont* ScoreboardFont = nullptr;   // 为空则用 NativeConstruct 里加载的 CustomFont
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scoreboard")
+	int32 ScoreboardFontSize = 14;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scoreboard")
+	FLinearColor ScoreboardRowColor = FLinearColor(0.772f, 0.786f, 0.824f);
+
 	// --- Public functions ---
 	UFUNCTION(BlueprintCallable)
 	void PlayHitMarker(bool bIsEnemy);
@@ -241,13 +294,23 @@ public:
 
 	UFUNCTION()
 	void OnChatMessageReceived(const FString& Sender, const FString& Message, bool bIsTeam);
+
+	// 返回当前激活的占点点位（没有激活的点返回 nullptr）；供蓝图读队伍/进度/自己做外观
+	UFUNCTION(BlueprintCallable)
+	AControlArea* GetActiveControlArea() const;
+
+	// 占点得分广播回调（谁占领了据点 + 本次得分）；短暂显示广播文本并按队伍着色
+	UFUNCTION()
+	void OnControlPointScoredReceived(ETeam Team, int32 Score);
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual void NativeDestruct() override;
 private:
 	void RefreshScoreboard();
+	void AddScoreboardRow(UVerticalBox* List, const FString& Text);
 	void TryBindPlayerState();
+	void UpdateControlPointDisplay();
 
 	float HitMarkerAlpha;
 	float HitMarkerDuration;
@@ -261,6 +324,7 @@ private:
 	bool bOvertimeBound = false;
 	bool bWarmUpBound = false;
 	bool bChatMessageBound = false;
+	bool bControlPointScoredBound = false;
 
 	bool bIsHealingActive = false;
 	float HealingEndTime = 0.0f;
@@ -273,9 +337,11 @@ private:
 	TMap<UUserWidget*, FTimerHandle> EntryTimerMap;
 	TMap<UTextBlock*, FTimerHandle> ChatEntryTimerMap;
 	FTimerHandle WarmUpHideHandle;
+	FTimerHandle ControlPointBroadcastHandle;
 	void RemoveEntryInterval(UUserWidget* Entry);
 	void OnEntryTimerElapsed(UUserWidget* Entry);
 	FLinearColor ResolveKillFeedColor(ETeam KillerTeam) const;
+	FLinearColor ResolveTeamColor(ETeam Team) const;
 	UFUNCTION()
 	void OnMatchEndedReceived(const FString& WinnerName, bool bWinByKill);
 	UFUNCTION()

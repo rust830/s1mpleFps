@@ -40,6 +40,8 @@ public:
 	float ControlIntervalStart = 60.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Control")
 	float ControlIntervalEnd = 30.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Control")
+	float ControlBaseScore=100.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 KillLimits = 30;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
